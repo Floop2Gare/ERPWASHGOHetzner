@@ -1,0 +1,21 @@
+{
+  "name": "erpwashgo-monorepo",
+  "private": true,
+  "workspaces": [
+    "FRONT-END-ERP/FRONT-END-ERP"
+  ],
+  "scripts": {
+    "install:all": "npm install -ws",
+    "dev": "npm run dev:all",
+    "dev:all": "concurrently -n api,web -c blue,green \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:api": "BACK-END-ERP\\venv\\Scripts\\uvicorn.exe app.main:app --reload --port 8000 --app-dir BACK-END-ERP",
+    "dev:web": "npm --prefix FRONT-END-ERP/FRONT-END-ERP run dev",
+    "build": "npm --prefix FRONT-END-ERP/FRONT-END-ERP run build",
+    "preview": "npm --prefix FRONT-END-ERP/FRONT-END-ERP run preview"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}
+
+

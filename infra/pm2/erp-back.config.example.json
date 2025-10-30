@@ -1,0 +1,13 @@
+{
+  "apps": [
+    {
+      "name": "erp-back",
+      "script": "/srv/erp/BACK-END-ERP/venv/bin/uvicorn",
+      "args": "app.main:app --host 127.0.0.1 --port 8000 --workers 2",
+      "cwd": "/srv/erp/BACK-END-ERP",
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      }
+    }
+  ]
+}
