@@ -1,0 +1,33 @@
+# Dossiers système
+venv/
+.venv/
+env/
+ENV/
+__pycache__/
+.git/
+.vscode/
+.idea/
+database/
+
+# Fichiers de configuration locaux
+.gitignore
+.gitattributes
+.env.local
+.env.development
+.env.test
+
+# Fichiers temporaires
+*.log
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Fichiers OS
+.DS_Store
+Thumbs.db
+
+# Documentation (optionnel, commenter si nécessaire)
+# README*.md
+# *.md

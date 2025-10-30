@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="data:," />
+    <title>Wash&amp;Go App</title>
+  </head>
+  <body>
+    <script>
+      (function () {
+        const themeKeys = ['washandgo-theme', 'washingo-theme', 'washango-theme'];
+        const storedTheme = themeKeys
+          .map((key) => window.localStorage.getItem(key))
+          .find((value) => value === 'light' || value === 'dark');
+        const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const theme = storedTheme === 'light' || storedTheme === 'dark' ? storedTheme : prefersDark ? 'dark' : 'light';
+        const root = document.documentElement;
+        root.setAttribute('data-theme', theme);
+        root.style.colorScheme = theme;
+        root.classList.toggle('dark', theme === 'dark');
+        document.body.setAttribute('data-theme', theme);
+      })();
+    </script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
