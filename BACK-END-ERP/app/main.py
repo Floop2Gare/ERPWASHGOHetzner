@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 import os
 from typing import Any
+from contextlib import suppress
 
 # Charger les variables d'environnement uniquement en local
 # Vercel utilise automatiquement les variables d'environnement configurées
@@ -88,6 +89,15 @@ app.include_router(companies.router, prefix="/companies", tags=["companies"])
 app.include_router(leads.router, prefix="/leads", tags=["leads"])
 if os.getenv('ENABLE_DEBUG_ROUTES', 'false').lower() == 'true':
     app.include_router(debug_google.router, prefix="/debug", tags=["debug"])
+
+# Fallback DB (SQLite) – création du schéma ORM si DB_DIALECT != postgresql (tests internes uniquement)
+@app.on_event("startup")
+def _init_sqlite_schema() -> None:
+    if os.getenv("DB_DIALECT", "postgresql").lower() != "postgresql":
+        with suppress(Exception):
+            from app.db.models import Base  # type: ignore
+            from app.db.session import engine  # type: ignore
+            Base.metadata.create_all(bind=engine)
 
 @app.options("/{path:path}")
 async def options_handler(path: str):

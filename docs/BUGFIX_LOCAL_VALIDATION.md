@@ -26,6 +26,16 @@ Notes: Ajouter ici les éventuels autres problèmes rencontrés (frontend ou bac
   - `BACK-END-ERP/app/db/models.py`: mapping dynamique des types (`UUID`→`String(36)`, `JSONB/ARRAY`→`JSON`) si `DB_DIALECT!=postgresql`.
 - **Commit correspondant**: `fix(local-validation): sqlite fallback types for ORM`
 - **Résultat après fix**: Les modèles sont utilisables en fallback SQLite pour tests internes.
+
+## Problème 4 — Création du schéma en fallback SQLite (Alembic non compatible)
+- **Symptôme**: Les migrations Alembic utilisent SQL Postgres (JSONB, ARRAY, extensions, triggers) et échouent sur SQLite.
+- **Endpoint/page impactée**: Initialisation DB locale pour tests.
+- **Logs console/backend**: Erreurs DDL lors de `alembic upgrade` sous SQLite.
+- **Cause racine**: Migrations spécifiques Postgres.
+- **Correction effectuée**: Création du schéma via ORM au démarrage si `DB_DIALECT!=postgresql`.
+  - `BACK-END-ERP/app/main.py`: hook `startup` qui exécute `Base.metadata.create_all(bind=engine)` en fallback SQLite.
+- **Commit correspondant**: `fix(local-validation): sqlite schema init on startup`
+- **Résultat après fix**: Le backend démarre avec une base SQLite initialisée pour les tests internes (sans changer le contrat d’API).
  
 ## Problème 2 — Échec installation `psycopg2-binary` sous Python 3.13
 - **Symptôme**: `pip install -r BACK-END-ERP/requirements.txt` échoue avec `pg_config executable not found` lors de la construction de `psycopg2-binary`.
