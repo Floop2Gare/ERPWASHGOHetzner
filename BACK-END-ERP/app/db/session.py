@@ -14,7 +14,8 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     # Fallback explicite pour éviter un crash si non configuré
     # L’intégration Postgres doit fournir cette variable en prod.
-    DATABASE_URL = "postgresql+psycopg2://postgres:postgres@localhost:5432/postgres"
+    # Driver par défaut: psycopg v3 (binaire) pour compatibilité Python >= 3.13
+    DATABASE_URL = "postgresql+psycopg://postgres:postgres@localhost:5432/postgres"
 
 engine = create_engine(
     DATABASE_URL,

@@ -16,3 +16,15 @@ Ce journal recense les anomalies rencontrées lors de la validation locale (back
 ---
 
 Notes: Ajouter ici les éventuels autres problèmes rencontrés (frontend ou backend) avec le même format.
+ 
+## Problème 2 — Échec installation `psycopg2-binary` sous Python 3.13
+- **Symptôme**: `pip install -r BACK-END-ERP/requirements.txt` échoue avec `pg_config executable not found` lors de la construction de `psycopg2-binary`.
+- **Endpoint/page impactée**: Installation backend (toutes routes DB bloquées).
+- **Logs console/backend**:
+  - `Error: pg_config executable not found.`
+- **Cause racine**: Pas de wheel précompilée pour Python 3.13 → tentative de build source nécessitant `pg_config`.
+- **Correction effectuée**: Migration vers `psycopg` v3 binaire et mise à jour du driver SQLAlchemy.
+  - `BACK-END-ERP/requirements.txt`: remplacer `psycopg2-binary==2.9.9` par `psycopg[binary]==3.1.19`.
+  - `BACK-END-ERP/app/db/session.py`: fallback `postgresql+psycopg://...` (au lieu de `psycopg2`).
+- **Commit correspondant**: `fix(local-validation): corrections pré-déploiement`
+- **Résultat après fix**: Installation des dépendances Python possible sans `pg_config`.
