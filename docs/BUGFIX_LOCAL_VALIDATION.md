@@ -16,6 +16,16 @@ Ce journal recense les anomalies rencontrées lors de la validation locale (back
 ---
 
 Notes: Ajouter ici les éventuels autres problèmes rencontrés (frontend ou backend) avec le même format.
+
+## Problème 3 — Incompatibilités de types Postgres lors d’un fallback SQLite
+- **Symptôme**: Impossible d’utiliser les modèles ORM avec SQLite (types `UUID`, `JSONB`, `ARRAY` non supportés).
+- **Endpoint/page impactée**: Tous les CRUD lors d’un test local sans Postgres.
+- **Logs console/backend**: Erreurs de compilation SQLAlchemy sur types dialecte Postgres.
+- **Cause racine**: Les modèles SQLAlchemy utilisent des types spécifiques Postgres.
+- **Correction effectuée**: Ajout d’un fallback typé pour SQLite via variable `DB_DIALECT`.
+  - `BACK-END-ERP/app/db/models.py`: mapping dynamique des types (`UUID`→`String(36)`, `JSONB/ARRAY`→`JSON`) si `DB_DIALECT!=postgresql`.
+- **Commit correspondant**: `fix(local-validation): sqlite fallback types for ORM`
+- **Résultat après fix**: Les modèles sont utilisables en fallback SQLite pour tests internes.
  
 ## Problème 2 — Échec installation `psycopg2-binary` sous Python 3.13
 - **Symptôme**: `pip install -r BACK-END-ERP/requirements.txt` échoue avec `pg_config executable not found` lors de la construction de `psycopg2-binary`.
