@@ -87,7 +87,7 @@ const App = () => {
   const theme = useAppData((state) => state.theme);
   const [renderMobileUI, setRenderMobileUI] = useState(false);
   
-  // Activer la synchronisation automatique avec Supabase
+  // Synchronisation automatique (legacy Supabase supprimée)
   // Initialiser la synchronisation backend
   useBackendSync();
 

@@ -2428,13 +2428,20 @@ export const useAppData = create<AppState>((set, get) => ({
     
     // Synchroniser immédiatement avec le backend
     if (created) {
-      ClientService.createClient(created).then(result => {
+      ClientService.createClient(created)
+        .then(async (result) => {
         if (result.success) {
+            // Invalidation + re-fetch de la liste depuis le backend
+            const refreshed = await ClientService.getClients();
+            if (refreshed.success) {
+              set({ clients: refreshed.data });
+            }
           console.log('[Store] ✅ Client créé et synchronisé:', created!.id);
         } else {
           console.error('[Store] ❌ Erreur synchronisation client:', result.error);
         }
-      }).catch(error => {
+        })
+        .catch((error) => {
         console.error('[Store] ❌ Erreur création client:', error);
       });
     }
@@ -2500,6 +2507,19 @@ export const useAppData = create<AppState>((set, get) => ({
         return next;
       }),
     }));
+    // Synchroniser backend puis re-fetch la liste
+    if (updated) {
+      ClientService.updateClient(clientId, updated)
+        .then(async (result) => {
+          if (result.success) {
+            const refreshed = await ClientService.getClients();
+            if (refreshed.success) {
+              set({ clients: refreshed.data });
+            }
+          }
+        })
+        .catch(() => {});
+    }
     return updated;
   },
   addClientContact: (clientId, payload) => {
@@ -2667,6 +2687,15 @@ export const useAppData = create<AppState>((set, get) => ({
         slots: buildSlots(nextEngagements, state.services),
       };
     });
+    // Synchroniser backend puis re-fetch la liste
+    ClientService.deleteClient(clientId)
+      .then(async (result) => {
+        const refreshed = await ClientService.getClients();
+        if (refreshed.success) {
+          set({ clients: refreshed.data });
+        }
+      })
+      .catch(() => {});
   },
   restoreClient: ({ client, engagements: engagementsToRestore, notes: notesToRestore }) => {
     set((state) => {

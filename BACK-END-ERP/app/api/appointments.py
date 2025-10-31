@@ -1,93 +1,68 @@
 import logging
 from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query, status
 from pydantic import ValidationError
 from datetime import datetime, date
-from app.models.supabase_client import get_supabase_client
+import sqlalchemy as sa
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from app.schemas.erp import (
     AppointmentCreate, AppointmentUpdate, ERPResponse, ERPListResponse
 )
-from supabase import Client as SupabaseClient
+from app.db.session import get_db
+from app.db.models import AppointmentORM
 import uuid
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-def get_supabase_client_dependency() -> SupabaseClient:
-    try:
-        logger.info("Tentative d'obtention du client Supabase...")
-        client_instance = get_supabase_client()
-        logger.info("Client Supabase obtenu avec succès")
-        return client_instance.get_client()
-    except Exception as e:
-        logger.error(f"Erreur lors de l'initialisation Supabase: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Erreur de connexion Supabase: {str(e)}")
-
-@router.post("/", response_model=ERPResponse)
+@router.post("/", response_model=ERPResponse, status_code=status.HTTP_201_CREATED)
 async def create_appointment(
     appointment_data: AppointmentCreate,
-    supabase: SupabaseClient = Depends(get_supabase_client_dependency)
+    db: Session = Depends(get_db)
 ):
     """Crée un nouveau rendez-vous."""
     try:
         # Générer un ID unique côté serveur
-        new_id = str(uuid.uuid4())
-        
+        new_id = appointment_data.id or str(uuid.uuid4())
+
         logger.info(f"Création d'un nouveau rendez-vous: {new_id}")
-        
-        # Vérifier que le client existe
-        client_result = supabase.table('clients').select('id').eq('id', appointment_data.clientId).limit(1).execute()
-        if not client_result.data:
-            raise HTTPException(status_code=404, detail=f"Client avec l'ID {appointment_data.clientId} non trouvé")
-        
-        # Vérifier que le service existe
-        service_result = supabase.table('services').select('id').eq('id', appointment_data.serviceId).limit(1).execute()
-        if not service_result.data:
-            raise HTTPException(status_code=404, detail=f"Service avec l'ID {appointment_data.serviceId} non trouvé")
-        
-        # Préparer les données pour Supabase
-        appointment_dict = {
+
+        start_at = appointment_data.startTime or appointment_data.scheduledAt
+        end_at = None
+        status_val = appointment_data.status.value if getattr(appointment_data, 'status', None) else None
+
+        row = AppointmentORM(
+            id=new_id,
+            client_id=appointment_data.clientId,
+            service_id=appointment_data.serviceId,
+            start_at=start_at,
+            end_at=end_at,
+            status=status_val,
+            notes={},
+        )
+        db.add(row)
+        payload = {
             "id": new_id,
-            "client_id": appointment_data.clientId,
-            "service_id": appointment_data.serviceId,
-            "option_ids": appointment_data.optionIds,
-            "scheduled_at": appointment_data.scheduledAt.isoformat(),
-            "status": appointment_data.status.value,
-            "company_id": appointment_data.companyId,
-            "kind": appointment_data.kind.value,
-            "support_type": appointment_data.supportType.value if appointment_data.supportType else None,
-            "support_detail": appointment_data.supportDetail,
-            "additional_charge": appointment_data.additionalCharge,
-            "contact_ids": appointment_data.contactIds,
-            "assigned_user_ids": appointment_data.assignedUserIds,
-            "send_history": appointment_data.sendHistory,
-            "invoice_number": appointment_data.invoiceNumber,
-            "invoice_vat_enabled": appointment_data.invoiceVatEnabled,
-            "quote_number": appointment_data.quoteNumber,
-            "quote_status": appointment_data.quoteStatus,
-            "mobile_duration_minutes": appointment_data.mobileDurationMinutes,
-            "mobile_completion_comment": appointment_data.mobileCompletionComment,
-            "planning_user": appointment_data.planningUser,
-            "start_time": appointment_data.startTime.isoformat(),
-            "created_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat()
+            "client_id": row.client_id,
+            "service_id": row.service_id,
+            "scheduled_at": row.start_at.isoformat() if row.start_at else None,
+            "start_time": row.end_at.isoformat() if row.end_at else None,
+            "scheduledAt": row.start_at.isoformat() if row.start_at else None,
+            "status": row.status,
+            "notes": row.notes,
+            "created_at": row.created_at.isoformat() if getattr(row, 'created_at', None) else None,
+            "updated_at": row.updated_at.isoformat() if getattr(row, 'updated_at', None) else None,
         }
-        
-        # Insérer en base
-        result = supabase.table('engagements').insert(appointment_dict).execute()
-        
-        if result.data:
-            logger.info(f"✅ Rendez-vous créé avec succès: {new_id}")
-            return ERPResponse(success=True, data=result.data[0])
-        else:
-            logger.error("❌ Erreur lors de la création du rendez-vous: Aucune donnée retournée")
-            return ERPResponse(success=False, error="Erreur lors de la création du rendez-vous")
+        logger.info(f"✅ Rendez-vous créé avec succès: {new_id}")
+        return ERPResponse(success=True, data=payload)
             
     except HTTPException:
         raise
     except ValidationError as ve:
         logger.error(f"Erreur de validation: {ve}")
-        return ERPResponse(success=False, error=f"Données invalides: {str(ve)}")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Données invalides")
     except Exception as e:
         logger.error(f"Erreur lors de la création du rendez-vous: {e}")
         return ERPResponse(success=False, error=f"Erreur serveur: {str(e)}")
@@ -96,20 +71,32 @@ async def create_appointment(
 async def get_all_appointments(
     limit: Optional[int] = Query(100, ge=1, le=1000),
     offset: Optional[int] = Query(0, ge=0),
-    supabase: SupabaseClient = Depends(get_supabase_client_dependency)
+    db: Session = Depends(get_db)
 ):
     """Récupère tous les rendez-vous avec pagination."""
     try:
         logger.info(f"Récupération des rendez-vous (limit={limit}, offset={offset})")
         
-        result = supabase.table('engagements').select('*').order('scheduled_at', desc=True).range(offset, offset + limit - 1).execute()
-        
-        if result.data:
-            logger.info(f"✅ {len(result.data)} rendez-vous récupérés")
-            return ERPListResponse(success=True, data=result.data, count=len(result.data))
-        else:
-            logger.info("Aucun rendez-vous trouvé")
-            return ERPListResponse(success=True, data=[], count=0)
+        rows = db.execute(
+            select(AppointmentORM).order_by(AppointmentORM.start_at.desc()).offset(offset).limit(limit)
+        ).scalars().all()
+        data = [
+            {
+                "id": r.id,
+                "client_id": r.client_id,
+                "service_id": r.service_id,
+                "scheduled_at": r.start_at.isoformat() if r.start_at else None,
+                "start_time": r.end_at.isoformat() if r.end_at else None,
+                "scheduledAt": r.start_at.isoformat() if r.start_at else None,
+                "status": r.status,
+                "notes": r.notes or {},
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+            }
+            for r in rows
+        ]
+        logger.info(f"✅ {len(data)} rendez-vous récupérés")
+        return ERPListResponse(success=True, data=data, count=len(data))
             
     except Exception as e:
         logger.error(f"Erreur lors de la récupération des rendez-vous: {e}")
@@ -118,17 +105,28 @@ async def get_all_appointments(
 @router.get("/{appointment_id}", response_model=ERPResponse)
 async def get_appointment(
     appointment_id: str,
-    supabase: SupabaseClient = Depends(get_supabase_client_dependency)
+    db: Session = Depends(get_db)
 ):
     """Récupère un rendez-vous par son ID."""
     try:
         logger.info(f"Récupération du rendez-vous: {appointment_id}")
         
-        result = supabase.table('engagements').select('*').eq('id', appointment_id).limit(1).execute()
-        
-        if result.data:
+        r = db.get(AppointmentORM, appointment_id)
+        if r:
+            data = {
+                "id": r.id,
+                "client_id": r.client_id,
+                "service_id": r.service_id,
+                "scheduled_at": r.start_at.isoformat() if r.start_at else None,
+                "start_time": r.end_at.isoformat() if r.end_at else None,
+                "scheduledAt": r.start_at.isoformat() if r.start_at else None,
+                "status": r.status,
+                "notes": r.notes or {},
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+            }
             logger.info(f"✅ Rendez-vous trouvé: {appointment_id}")
-            return ERPResponse(success=True, data=result.data[0])
+            return ERPResponse(success=True, data=data)
         else:
             logger.warning(f"Rendez-vous non trouvé: {appointment_id}")
             raise HTTPException(status_code=404, detail="Rendez-vous non trouvé")
@@ -143,87 +141,44 @@ async def get_appointment(
 async def update_appointment(
     appointment_id: str,
     appointment_data: AppointmentUpdate,
-    supabase: SupabaseClient = Depends(get_supabase_client_dependency)
+    db: Session = Depends(get_db)
 ):
     """Met à jour un rendez-vous existant."""
     try:
         logger.info(f"Mise à jour du rendez-vous: {appointment_id}")
         
-        # Vérifier que le client existe si clientId est fourni
-        if appointment_data.clientId:
-            client_result = supabase.table('clients').select('id').eq('id', appointment_data.clientId).limit(1).execute()
-            if not client_result.data:
-                raise HTTPException(status_code=404, detail=f"Client avec l'ID {appointment_data.clientId} non trouvé")
-        
-        # Vérifier que le service existe si serviceId est fourni
-        if appointment_data.serviceId:
-            service_result = supabase.table('services').select('id').eq('id', appointment_data.serviceId).limit(1).execute()
-            if not service_result.data:
-                raise HTTPException(status_code=404, detail=f"Service avec l'ID {appointment_data.serviceId} non trouvé")
-        
-        # Préparer les données de mise à jour
-        update_dict = {}
-        for field, value in appointment_data.model_dump(exclude_unset=True).items():
-            if value is not None:
-                if field == "status" and hasattr(value, 'value'):
-                    update_dict["status"] = value.value
-                elif field == "kind" and hasattr(value, 'value'):
-                    update_dict["kind"] = value.value
-                elif field == "supportType" and hasattr(value, 'value'):
-                    update_dict["support_type"] = value.value
-                elif field == "scheduledAt":
-                    update_dict["scheduled_at"] = value.isoformat()
-                elif field == "startTime":
-                    update_dict["start_time"] = value.isoformat()
-                elif field == "clientId":
-                    update_dict["client_id"] = value
-                elif field == "serviceId":
-                    update_dict["service_id"] = value
-                elif field == "optionIds":
-                    update_dict["option_ids"] = value
-                elif field == "companyId":
-                    update_dict["company_id"] = value
-                elif field == "supportDetail":
-                    update_dict["support_detail"] = value
-                elif field == "additionalCharge":
-                    update_dict["additional_charge"] = value
-                elif field == "contactIds":
-                    update_dict["contact_ids"] = value
-                elif field == "assignedUserIds":
-                    update_dict["assigned_user_ids"] = value
-                elif field == "sendHistory":
-                    update_dict["send_history"] = value
-                elif field == "invoiceNumber":
-                    update_dict["invoice_number"] = value
-                elif field == "invoiceVatEnabled":
-                    update_dict["invoice_vat_enabled"] = value
-                elif field == "quoteNumber":
-                    update_dict["quote_number"] = value
-                elif field == "quoteStatus":
-                    update_dict["quote_status"] = value
-                elif field == "mobileDurationMinutes":
-                    update_dict["mobile_duration_minutes"] = value
-                elif field == "mobileCompletionComment":
-                    update_dict["mobile_completion_comment"] = value
-                elif field == "planningUser":
-                    update_dict["planning_user"] = value
-                else:
-                    update_dict[field] = value
-        
-        update_dict["updated_at"] = datetime.utcnow().isoformat()
-        
-        # Mettre à jour en base
-        result = supabase.table('engagements').update(update_dict).eq('id', appointment_id).execute()
-        
-        if result.data:
-            logger.info(f"✅ Rendez-vous mis à jour: {appointment_id}")
-            return ERPResponse(success=True, data=result.data[0])
-        else:
-            logger.warning(f"Rendez-vous non trouvé pour mise à jour: {appointment_id}")
+        row = db.get(AppointmentORM, appointment_id)
+        if not row:
             raise HTTPException(status_code=404, detail="Rendez-vous non trouvé")
+
+        payload = appointment_data.model_dump(exclude_unset=True)
+        if "status" in payload and hasattr(payload["status"], "value"):
+            payload["status"] = payload["status"].value
+        if "scheduledAt" in payload:
+            payload_start = payload.pop("scheduledAt")
+            if payload_start is not None:
+                row.start_at = payload_start
+        if "startTime" in payload:
+            payload_end = payload.pop("startTime")
+            if payload_end is not None:
+                row.end_at = payload_end
+        if "clientId" in payload:
+            row.client_id = payload.pop("clientId")
+        if "serviceId" in payload:
+            row.service_id = payload.pop("serviceId")
+        if "notes" in payload:
+            row.notes = payload.pop("notes") or {}
+        for k, v in payload.items():
+            setattr(row, k, v)
+        row.updated_at = datetime.utcnow()
+        logger.info(f"✅ Rendez-vous mis à jour: {appointment_id}")
+        return ERPResponse(success=True, data={"id": appointment_id})
             
     except HTTPException:
         raise
+    except IntegrityError as ie:
+        logger.error(f"Conflit d'intégrité (FK?): {ie}")
+        raise HTTPException(status_code=409, detail="Conflit d'intégrité")
     except Exception as e:
         logger.error(f"Erreur lors de la mise à jour du rendez-vous {appointment_id}: {e}")
         return ERPResponse(success=False, error=f"Erreur serveur: {str(e)}")
@@ -231,21 +186,19 @@ async def update_appointment(
 @router.delete("/{appointment_id}", response_model=ERPResponse)
 async def delete_appointment(
     appointment_id: str,
-    supabase: SupabaseClient = Depends(get_supabase_client_dependency)
+    db: Session = Depends(get_db)
 ):
     """Supprime un rendez-vous."""
     try:
         logger.info(f"Suppression du rendez-vous: {appointment_id}")
         
-        result = supabase.table('engagements').delete().eq('id', appointment_id).execute()
-        
-        # Vérifier si la suppression a réussi (result.count peut être None)
-        if result.count is not None and result.count > 0:
-            logger.info(f"✅ Rendez-vous supprimé: {appointment_id}")
-            return ERPResponse(success=True, data={"id": appointment_id, "message": "Rendez-vous supprimé avec succès"})
-        else:
+        r = db.get(AppointmentORM, appointment_id)
+        if not r:
             logger.warning(f"Rendez-vous non trouvé pour suppression: {appointment_id}")
             raise HTTPException(status_code=404, detail="Rendez-vous non trouvé")
+        db.delete(r)
+        logger.info(f"✅ Rendez-vous supprimé: {appointment_id}")
+        return ERPResponse(success=True, data={"id": appointment_id, "message": "Rendez-vous supprimé avec succès"})
             
     except HTTPException:
         raise
@@ -256,7 +209,7 @@ async def delete_appointment(
 @router.get("/calendar/{date_str}", response_model=ERPListResponse)
 async def get_appointments_by_date(
     date_str: str,
-    supabase: SupabaseClient = Depends(get_supabase_client_dependency)
+    db: Session = Depends(get_db)
 ):
     """Récupère les rendez-vous pour une date spécifique (format YYYY-MM-DD)."""
     try:
@@ -271,14 +224,29 @@ async def get_appointments_by_date(
         start_of_day = datetime.combine(target_date, datetime.min.time())
         end_of_day = datetime.combine(target_date, datetime.max.time())
         
-        result = supabase.table('engagements').select('*').gte('scheduled_at', start_of_day.isoformat()).lte('scheduled_at', end_of_day.isoformat()).order('scheduled_at', desc=False).execute()
-        
-        if result.data:
-            logger.info(f"✅ {len(result.data)} rendez-vous trouvés pour le {date_str}")
-            return ERPListResponse(success=True, data=result.data, count=len(result.data))
-        else:
-            logger.info(f"Aucun rendez-vous trouvé pour le {date_str}")
-            return ERPListResponse(success=True, data=[], count=0)
+        rows = db.execute(
+            select(AppointmentORM)
+            .where(AppointmentORM.start_at >= start_of_day)
+            .where(AppointmentORM.start_at <= end_of_day)
+            .order_by(AppointmentORM.start_at.asc())
+        ).scalars().all()
+        data = [
+            {
+                "id": r.id,
+                "client_id": r.client_id,
+                "service_id": r.service_id,
+                "scheduled_at": r.start_at.isoformat() if r.start_at else None,
+                "start_time": r.end_at.isoformat() if r.end_at else None,
+                "scheduledAt": r.start_at.isoformat() if r.start_at else None,
+                "status": r.status,
+                "notes": r.notes or {},
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+            }
+            for r in rows
+        ]
+        logger.info(f"✅ {len(data)} rendez-vous trouvés pour le {date_str}")
+        return ERPListResponse(success=True, data=data, count=len(data))
             
     except HTTPException:
         raise
@@ -289,20 +257,32 @@ async def get_appointments_by_date(
 @router.get("/status/{status}", response_model=ERPListResponse)
 async def get_appointments_by_status(
     status: str,
-    supabase: SupabaseClient = Depends(get_supabase_client_dependency)
+    db: Session = Depends(get_db)
 ):
     """Récupère les rendez-vous par statut."""
     try:
         logger.info(f"Récupération des rendez-vous avec le statut: {status}")
         
-        result = supabase.table('engagements').select('*').eq('status', status).order('scheduled_at', desc=True).execute()
-        
-        if result.data:
-            logger.info(f"✅ {len(result.data)} rendez-vous trouvés avec le statut '{status}'")
-            return ERPListResponse(success=True, data=result.data, count=len(result.data))
-        else:
-            logger.info(f"Aucun rendez-vous trouvé avec le statut '{status}'")
-            return ERPListResponse(success=True, data=[], count=0)
+        rows = db.execute(
+            select(AppointmentORM).where(AppointmentORM.status == status).order_by(AppointmentORM.start_at.desc())
+        ).scalars().all()
+        data = [
+            {
+                "id": r.id,
+                "client_id": r.client_id,
+                "service_id": r.service_id,
+                "scheduled_at": r.start_at.isoformat() if r.start_at else None,
+                "start_time": r.end_at.isoformat() if r.end_at else None,
+                "scheduledAt": r.start_at.isoformat() if r.start_at else None,
+                "status": r.status,
+                "notes": r.notes or {},
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+            }
+            for r in rows
+        ]
+        logger.info(f"✅ {len(data)} rendez-vous trouvés avec le statut '{status}'")
+        return ERPListResponse(success=True, data=data, count=len(data))
             
     except Exception as e:
         logger.error(f"Erreur lors de la récupération des rendez-vous avec le statut '{status}': {e}")
@@ -311,20 +291,32 @@ async def get_appointments_by_status(
 @router.get("/client/{client_id}", response_model=ERPListResponse)
 async def get_appointments_by_client(
     client_id: str,
-    supabase: SupabaseClient = Depends(get_supabase_client_dependency)
+    db: Session = Depends(get_db)
 ):
     """Récupère les rendez-vous d'un client spécifique."""
     try:
         logger.info(f"Récupération des rendez-vous du client: {client_id}")
         
-        result = supabase.table('engagements').select('*').eq('client_id', client_id).order('scheduled_at', desc=True).execute()
-        
-        if result.data:
-            logger.info(f"✅ {len(result.data)} rendez-vous trouvés pour le client '{client_id}'")
-            return ERPListResponse(success=True, data=result.data, count=len(result.data))
-        else:
-            logger.info(f"Aucun rendez-vous trouvé pour le client '{client_id}'")
-            return ERPListResponse(success=True, data=[], count=0)
+        rows = db.execute(
+            select(AppointmentORM).where(AppointmentORM.client_id == client_id).order_by(AppointmentORM.start_at.desc())
+        ).scalars().all()
+        data = [
+            {
+                "id": r.id,
+                "client_id": r.client_id,
+                "service_id": r.service_id,
+                "scheduled_at": r.start_at.isoformat() if r.start_at else None,
+                "start_time": r.end_at.isoformat() if r.end_at else None,
+                "scheduledAt": r.start_at.isoformat() if r.start_at else None,
+                "status": r.status,
+                "notes": r.notes or {},
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+            }
+            for r in rows
+        ]
+        logger.info(f"✅ {len(data)} rendez-vous trouvés pour le client '{client_id}'")
+        return ERPListResponse(success=True, data=data, count=len(data))
             
     except Exception as e:
         logger.error(f"Erreur lors de la récupération des rendez-vous du client '{client_id}': {e}")

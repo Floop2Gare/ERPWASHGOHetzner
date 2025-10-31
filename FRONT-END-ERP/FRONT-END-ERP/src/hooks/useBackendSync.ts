@@ -1,6 +1,6 @@
 /**
  * Hook pour la synchronisation avec le Backend
- * Architecture: Frontend → Backend → Supabase
+ * Architecture: Frontend → Backend (API Postgres)
  */
 
 import { useEffect, useCallback } from 'react';

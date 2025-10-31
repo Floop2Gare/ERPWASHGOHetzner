@@ -1,6 +1,6 @@
 /**
  * Services Backend pour ERP Wash&Go
- * Architecture: Frontend → Backend → Supabase
+ * Architecture: Frontend → Backend (Postgres via API)
  */
 
 // Configuration Backend pour déploiement sur serveur unique (Nginx proxy /api)
@@ -118,9 +118,9 @@ export class ClientService {
 
   static async getClients() {
     try {
-      logRequest('GET', `${BACKEND_URL}/clients`);
+      logRequest('GET', `${BACKEND_URL}/clients/`);
       
-      const response = await fetch(`${BACKEND_URL}/clients`);
+      const response = await fetch(`${BACKEND_URL}/clients/`);
       const result = await handleHttpResponse(response, 'ClientService.getClients');
       
       if (result.success) {
@@ -258,7 +258,7 @@ export class ServiceService {
 
   static async getServices() {
     try {
-      const response = await fetch(`${BACKEND_URL}/services`);
+      const response = await fetch(`${BACKEND_URL}/services/`);
       const result = await response.json();
       
       if (result.success) {
@@ -396,7 +396,7 @@ export class AppointmentService {
 
   static async getAppointments() {
     try {
-      const response = await fetch(`${BACKEND_URL}/appointments`);
+      const response = await fetch(`${BACKEND_URL}/appointments/`);
       const result = await response.json();
       
       if (result.success) {
@@ -534,7 +534,7 @@ export class CompanyService {
 
   static async getCompanies() {
     try {
-      const response = await fetch(`${BACKEND_URL}/companies`);
+      const response = await fetch(`${BACKEND_URL}/companies/`);
       const result = await response.json();
       
       if (result.success) {

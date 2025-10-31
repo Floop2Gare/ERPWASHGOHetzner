@@ -1,42 +1,34 @@
 import logging
 from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query, status
 from pydantic import ValidationError
 from datetime import datetime
-from app.models.supabase_client import get_supabase_client
+import sqlalchemy as sa
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from app.schemas.erp import (
     CompanyCreate, CompanyUpdate, ERPResponse, ERPListResponse
 )
-from supabase import Client as SupabaseClient
+from app.db.session import get_db
+from app.db.models import CompanyORM, ClientORM, AppointmentORM, ServiceORM
 import uuid
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-def get_supabase_client_dependency() -> SupabaseClient:
-    try:
-        logger.info("Tentative d'obtention du client Supabase...")
-        client_instance = get_supabase_client()
-        logger.info("Client Supabase obtenu avec succès")
-        return client_instance.get_client()
-    except Exception as e:
-        logger.error(f"Erreur lors de l'initialisation Supabase: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Erreur de connexion Supabase: {str(e)}")
-
-@router.post("/", response_model=ERPResponse)
+@router.post("/", response_model=ERPResponse, status_code=status.HTTP_201_CREATED)
 async def create_company(
     company_data: CompanyCreate,
-    supabase: SupabaseClient = Depends(get_supabase_client_dependency)
+    db: Session = Depends(get_db)
 ):
     """Crée une nouvelle entreprise."""
     try:
-        # Générer un ID unique côté serveur
-        new_id = str(uuid.uuid4())
-        
+        new_id = company_data.id or str(uuid.uuid4())
+
         logger.info(f"Création d'une nouvelle entreprise: {company_data.name}")
-        
-        # Préparer les données pour Supabase
-        company_dict = {
+
+        payload = {
             "id": new_id,
             "name": company_data.name,
             "email": company_data.email,
@@ -58,23 +50,17 @@ async def create_company(
             "iban": company_data.iban,
             "bic": company_data.bic,
             "planning_user": company_data.planningUser,
-            "created_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat()
         }
-        
-        # Insérer en base
-        result = supabase.table('companies').insert(company_dict).execute()
-        
-        if result.data:
-            logger.info(f"✅ Entreprise créée avec succès: {new_id}")
-            return ERPResponse(success=True, data=result.data[0])
-        else:
-            logger.error("❌ Erreur lors de la création de l'entreprise: Aucune donnée retournée")
-            return ERPResponse(success=False, error="Erreur lors de la création de l'entreprise")
+        db.add(CompanyORM(**payload))
+        logger.info(f"✅ Entreprise créée avec succès: {new_id}")
+        return ERPResponse(success=True, data=payload)
             
     except ValidationError as ve:
         logger.error(f"Erreur de validation: {ve}")
-        return ERPResponse(success=False, error=f"Données invalides: {str(ve)}")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Données invalides")
+    except IntegrityError as ie:
+        logger.error(f"Conflit d'unicité (name/email?): {ie}")
+        raise HTTPException(status_code=409, detail="Conflit: données déjà existantes (name/email)")
     except Exception as e:
         logger.error(f"Erreur lors de la création de l'entreprise: {e}")
         return ERPResponse(success=False, error=f"Erreur serveur: {str(e)}")
@@ -83,20 +69,35 @@ async def create_company(
 async def get_all_companies(
     limit: Optional[int] = Query(100, ge=1, le=1000),
     offset: Optional[int] = Query(0, ge=0),
-    supabase: SupabaseClient = Depends(get_supabase_client_dependency)
+    db: Session = Depends(get_db)
 ):
     """Récupère toutes les entreprises avec pagination."""
     try:
         logger.info(f"Récupération des entreprises (limit={limit}, offset={offset})")
         
-        result = supabase.table('companies').select('*').order('created_at', desc=True).range(offset, offset + limit - 1).execute()
-        
-        if result.data:
-            logger.info(f"✅ {len(result.data)} entreprises récupérées")
-            return ERPListResponse(success=True, data=result.data, count=len(result.data))
-        else:
-            logger.info("Aucune entreprise trouvée")
-            return ERPListResponse(success=True, data=[], count=0)
+        rows = db.execute(
+            select(CompanyORM).order_by(CompanyORM.created_at.desc()).offset(offset).limit(limit)
+        ).scalars().all()
+        data = [
+            {
+                "id": r.id,
+                "name": r.name,
+                "email": r.email,
+                "phone": r.phone,
+                "address": r.address,
+                "postal_code": r.postal_code,
+                "city": r.city,
+                "siret": r.siret,
+                "status": r.status,
+                "tags": r.tags or [],
+                "notes": r.notes or {},
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+            }
+            for r in rows
+        ]
+        logger.info(f"✅ {len(data)} entreprises récupérées")
+        return ERPListResponse(success=True, data=data, count=len(data))
             
     except Exception as e:
         logger.error(f"Erreur lors de la récupération des entreprises: {e}")
@@ -105,17 +106,31 @@ async def get_all_companies(
 @router.get("/{company_id}", response_model=ERPResponse)
 async def get_company(
     company_id: str,
-    supabase: SupabaseClient = Depends(get_supabase_client_dependency)
+    db: Session = Depends(get_db)
 ):
     """Récupère une entreprise par son ID."""
     try:
         logger.info(f"Récupération de l'entreprise: {company_id}")
         
-        result = supabase.table('companies').select('*').eq('id', company_id).limit(1).execute()
-        
-        if result.data:
+        r = db.get(CompanyORM, company_id)
+        if r:
+            data = {
+                "id": r.id,
+                "name": r.name,
+                "email": r.email,
+                "phone": r.phone,
+                "address": r.address,
+                "postal_code": r.postal_code,
+                "city": r.city,
+                "siret": r.siret,
+                "status": r.status,
+                "tags": r.tags or [],
+                "notes": r.notes or {},
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+            }
             logger.info(f"✅ Entreprise trouvée: {company_id}")
-            return ERPResponse(success=True, data=result.data[0])
+            return ERPResponse(success=True, data=data)
         else:
             logger.warning(f"Entreprise non trouvée: {company_id}")
             raise HTTPException(status_code=404, detail="Entreprise non trouvée")
@@ -130,52 +145,35 @@ async def get_company(
 async def update_company(
     company_id: str,
     company_data: CompanyUpdate,
-    supabase: SupabaseClient = Depends(get_supabase_client_dependency)
+    db: Session = Depends(get_db)
 ):
     """Met à jour une entreprise existante."""
     try:
         logger.info(f"Mise à jour de l'entreprise: {company_id}")
         
-        # Préparer les données de mise à jour
-        update_dict = {}
-        for field, value in company_data.model_dump(exclude_unset=True).items():
-            if value is not None:
-                if field == "postalCode":
-                    update_dict["postal_code"] = value
-                elif field == "vatNumber":
-                    update_dict["vat_number"] = value
-                elif field == "legalNotes":
-                    update_dict["legal_notes"] = value
-                elif field == "vatEnabled":
-                    update_dict["vat_enabled"] = value
-                elif field == "isDefault":
-                    update_dict["is_default"] = value
-                elif field == "documentHeaderTitle":
-                    update_dict["document_header_title"] = value
-                elif field == "logoUrl":
-                    update_dict["logo_url"] = value
-                elif field == "invoiceLogoUrl":
-                    update_dict["invoice_logo_url"] = value
-                elif field == "bankName":
-                    update_dict["bank_name"] = value
-                elif field == "bankAddress":
-                    update_dict["bank_address"] = value
-                elif field == "planningUser":
-                    update_dict["planning_user"] = value
-                else:
-                    update_dict[field] = value
-        
-        update_dict["updated_at"] = datetime.utcnow().isoformat()
-        
-        # Mettre à jour en base
-        result = supabase.table('companies').update(update_dict).eq('id', company_id).execute()
-        
-        if result.data:
-            logger.info(f"✅ Entreprise mise à jour: {company_id}")
-            return ERPResponse(success=True, data=result.data[0])
-        else:
-            logger.warning(f"Entreprise non trouvée pour mise à jour: {company_id}")
+        row = db.get(CompanyORM, company_id)
+        if not row:
             raise HTTPException(status_code=404, detail="Entreprise non trouvée")
+
+        payload = company_data.model_dump(exclude_unset=True)
+        mapping = {
+            'postalCode': 'postal_code',
+            'vatNumber': 'vat_number',
+            'legalNotes': 'legal_notes',
+            'vatEnabled': 'vat_enabled',
+            'isDefault': 'is_default',
+            'documentHeaderTitle': 'document_header_title',
+            'logoUrl': 'logo_url',
+            'invoiceLogoUrl': 'invoice_logo_url',
+            'bankName': 'bank_name',
+            'bankAddress': 'bank_address',
+            'planningUser': 'planning_user',
+        }
+        for k, v in payload.items():
+            setattr(row, mapping.get(k, k), v)
+        row.updated_at = datetime.utcnow()
+        logger.info(f"✅ Entreprise mise à jour: {company_id}")
+        return ERPResponse(success=True, data={"id": company_id})
             
     except HTTPException:
         raise
@@ -186,21 +184,19 @@ async def update_company(
 @router.delete("/{company_id}", response_model=ERPResponse)
 async def delete_company(
     company_id: str,
-    supabase: SupabaseClient = Depends(get_supabase_client_dependency)
+    db: Session = Depends(get_db)
 ):
     """Supprime une entreprise."""
     try:
         logger.info(f"Suppression de l'entreprise: {company_id}")
         
-        result = supabase.table('companies').delete().eq('id', company_id).execute()
-        
-        # Vérifier si la suppression a réussi (result.count peut être None)
-        if result.count is not None and result.count > 0:
-            logger.info(f"✅ Entreprise supprimée: {company_id}")
-            return ERPResponse(success=True, data={"id": company_id, "message": "Entreprise supprimée avec succès"})
-        else:
+        r = db.get(CompanyORM, company_id)
+        if not r:
             logger.warning(f"Entreprise non trouvée pour suppression: {company_id}")
             raise HTTPException(status_code=404, detail="Entreprise non trouvée")
+        db.delete(r)
+        logger.info(f"✅ Entreprise supprimée: {company_id}")
+        return ERPResponse(success=True, data={"id": company_id, "message": "Entreprise supprimée avec succès"})
             
     except HTTPException:
         raise
@@ -211,28 +207,28 @@ async def delete_company(
 @router.get("/{company_id}/stats", response_model=ERPResponse)
 async def get_company_stats(
     company_id: str,
-    supabase: SupabaseClient = Depends(get_supabase_client_dependency)
+    db: Session = Depends(get_db)
 ):
     """Récupère des statistiques pour une entreprise."""
     try:
         logger.info(f"Récupération des statistiques pour l'entreprise: {company_id}")
         
-        # Vérifier si l'entreprise existe
-        company_result = supabase.table('companies').select('id').eq('id', company_id).limit(1).execute()
-        if not company_result.data:
+        r_company = db.get(CompanyORM, company_id)
+        if not r_company:
             raise HTTPException(status_code=404, detail="Entreprise non trouvée")
-        
-        # Compter les clients liés à cette entreprise
-        clients_result = supabase.table('clients').select('id', count='exact').eq('company_id', company_id).execute()
-        num_clients = clients_result.count if clients_result.count else 0
-        
-        # Compter les services (tous les services pour l'exemple)
-        services_result = supabase.table('services').select('id', count='exact').execute()
-        num_services = services_result.count if services_result.count else 0
-        
-        # Compter les rendez-vous liés aux clients de cette entreprise
-        appointments_result = supabase.table('engagements').select('id', count='exact').execute()
-        num_appointments = appointments_result.count if appointments_result.count else 0
+
+        client_rows = db.execute(
+            select(ClientORM.id).where(ClientORM.company_name == r_company.name)
+        ).all()
+        client_ids = [row[0] for row in client_rows]
+
+        num_clients = len(client_ids)
+        num_services = db.execute(select(sa.func.count(ServiceORM.id))).scalar_one()
+        num_appointments = 0
+        if client_ids:
+            num_appointments = db.execute(
+                select(sa.func.count(AppointmentORM.id)).where(AppointmentORM.client_id.in_(client_ids))
+            ).scalar_one()
         
         stats = {
             "company_id": company_id,
@@ -253,25 +249,33 @@ async def get_company_stats(
 @router.get("/{company_id}/clients", response_model=ERPListResponse)
 async def get_company_clients(
     company_id: str,
-    supabase: SupabaseClient = Depends(get_supabase_client_dependency)
+    db: Session = Depends(get_db)
 ):
     """Récupère la liste des clients associés à une entreprise."""
     try:
         logger.info(f"Récupération des clients pour l'entreprise: {company_id}")
         
-        # Vérifier si l'entreprise existe
-        company_result = supabase.table('companies').select('id').eq('id', company_id).limit(1).execute()
-        if not company_result.data:
+        r_company = db.get(CompanyORM, company_id)
+        if not r_company:
             raise HTTPException(status_code=404, detail="Entreprise non trouvée")
-        
-        result = supabase.table('clients').select('*').eq('company_id', company_id).order('name', desc=False).execute()
-        
-        if result.data:
-            logger.info(f"✅ {len(result.data)} clients trouvés pour l'entreprise '{company_id}'")
-            return ERPListResponse(success=True, data=result.data, count=len(result.data))
-        else:
-            logger.info(f"Aucun client trouvé pour l'entreprise '{company_id}'")
-            return ERPListResponse(success=True, data=[], count=0)
+
+        rows = db.execute(
+            select(ClientORM).where(ClientORM.company_name == r_company.name).order_by(ClientORM.name.asc())
+        ).scalars().all()
+        data = [
+            {
+                "id": r.id,
+                "name": r.name,
+                "email": r.email,
+                "phone": r.phone,
+                "address": r.address,
+                "city": r.city,
+                "status": r.status,
+            }
+            for r in rows
+        ]
+        logger.info(f"✅ {len(data)} clients trouvés pour l'entreprise '{company_id}'")
+        return ERPListResponse(success=True, data=data, count=len(data))
             
     except HTTPException:
         raise
@@ -282,34 +286,40 @@ async def get_company_clients(
 @router.get("/{company_id}/appointments", response_model=ERPListResponse)
 async def get_company_appointments(
     company_id: str,
-    supabase: SupabaseClient = Depends(get_supabase_client_dependency)
+    db: Session = Depends(get_db)
 ):
     """Récupère la liste des rendez-vous associés aux clients d'une entreprise."""
     try:
         logger.info(f"Récupération des rendez-vous pour l'entreprise: {company_id}")
         
-        # Vérifier si l'entreprise existe
-        company_result = supabase.table('companies').select('id').eq('id', company_id).limit(1).execute()
-        if not company_result.data:
+        r_company = db.get(CompanyORM, company_id)
+        if not r_company:
             raise HTTPException(status_code=404, detail="Entreprise non trouvée")
-        
-        # Récupérer les IDs des clients de cette entreprise
-        clients_result = supabase.table('clients').select('id').eq('company_id', company_id).execute()
-        client_ids = [client['id'] for client in clients_result.data] if clients_result.data else []
-        
+
+        client_rows = db.execute(
+            select(ClientORM.id).where(ClientORM.company_name == r_company.name)
+        ).all()
+        client_ids = [row[0] for row in client_rows]
         if not client_ids:
             logger.info(f"Aucun client trouvé pour l'entreprise '{company_id}', donc aucun rendez-vous")
             return ERPListResponse(success=True, data=[], count=0)
-        
-        # Récupérer les rendez-vous pour ces clients
-        result = supabase.table('engagements').select('*').in_('client_id', client_ids).order('scheduled_at', desc=True).execute()
-        
-        if result.data:
-            logger.info(f"✅ {len(result.data)} rendez-vous trouvés pour l'entreprise '{company_id}'")
-            return ERPListResponse(success=True, data=result.data, count=len(result.data))
-        else:
-            logger.info(f"Aucun rendez-vous trouvé pour l'entreprise '{company_id}'")
-            return ERPListResponse(success=True, data=[], count=0)
+
+        rows = db.execute(
+            select(AppointmentORM).where(AppointmentORM.client_id.in_(client_ids)).order_by(AppointmentORM.start_at.desc())
+        ).scalars().all()
+        data = [
+            {
+                "id": r.id,
+                "client_id": r.client_id,
+                "service_id": r.service_id,
+                "scheduled_at": r.start_at.isoformat() if r.start_at else None,
+                "start_time": r.end_at.isoformat() if r.end_at else None,
+                "status": r.status,
+            }
+            for r in rows
+        ]
+        logger.info(f"✅ {len(data)} rendez-vous trouvés pour l'entreprise '{company_id}'")
+        return ERPListResponse(success=True, data=data, count=len(data))
             
     except HTTPException:
         raise
@@ -319,17 +329,27 @@ async def get_company_appointments(
 
 @router.get("/default", response_model=ERPResponse)
 async def get_default_company(
-    supabase: SupabaseClient = Depends(get_supabase_client_dependency)
+    db: Session = Depends(get_db)
 ):
     """Récupère l'entreprise par défaut."""
     try:
         logger.info("Récupération de l'entreprise par défaut")
         
-        result = supabase.table('companies').select('*').eq('is_default', True).limit(1).execute()
-        
-        if result.data:
+        row = db.execute(select(CompanyORM).where(CompanyORM.is_default.is_(True)).limit(1)).scalars().first()
+        if row:
+            data = {
+                "id": row.id,
+                "name": row.name,
+                "email": row.email,
+                "phone": row.phone,
+                "address": row.address,
+                "postal_code": row.postal_code,
+                "city": row.city,
+                "siret": row.siret,
+                "status": row.status,
+            }
             logger.info("✅ Entreprise par défaut trouvée")
-            return ERPResponse(success=True, data=result.data[0])
+            return ERPResponse(success=True, data=data)
         else:
             logger.warning("Aucune entreprise par défaut trouvée")
             raise HTTPException(status_code=404, detail="Aucune entreprise par défaut trouvée")

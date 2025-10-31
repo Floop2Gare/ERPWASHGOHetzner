@@ -286,6 +286,8 @@ export const Topbar = ({ onMenuToggle }: TopbarProps) => {
     navigate(path);
   };
 
+  const APP_VERSION: string = (import.meta as any).env?.VITE_APP_VERSION || '1.0';
+
   return (
     <header className="sticky top-0 z-30 border-b border-border bg-surface">
       <div className="grid w-full gap-3 px-4 py-3 sm:px-6 lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:items-center lg:gap-6">
@@ -359,6 +361,9 @@ export const Topbar = ({ onMenuToggle }: TopbarProps) => {
           </div>
         </form>
         <div className="flex items-center justify-end gap-3">
+          <span className="hidden rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] text-muted sm:inline-block">
+            v {APP_VERSION}
+          </span>
           <div className="hidden text-right text-[11px] uppercase tracking-[0.28em] text-muted lg:block">
             <p className="text-sm font-semibold text-text">{displayName}</p>
             <p className="text-[10px] text-muted">{displayRole}</p>

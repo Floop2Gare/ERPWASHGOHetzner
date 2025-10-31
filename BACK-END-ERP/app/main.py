@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi import APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 import os
+from typing import Any
 
 # Charger les variables d'environnement uniquement en local
 # Vercel utilise automatiquement les variables d'environnement configurées
@@ -35,7 +36,6 @@ services = _safe_import("app.api.services", "router")
 appointments = _safe_import("app.api.appointments", "router")
 companies = _safe_import("app.api.companies", "router")
 leads = _safe_import("app.api.leads", "router")
-debug_supabase = _safe_import("app.api.debug_supabase", "router")
 debug_google = _safe_import("app.api.debug_google", "router")
 
 app = FastAPI(
@@ -67,7 +67,7 @@ def root() -> dict[str, str]:
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
+def health() -> dict[str, Any]:
     """Simple healthcheck endpoint."""
     return {
         "status": "ok" if not disabled_modules else "degraded",
@@ -87,7 +87,6 @@ app.include_router(appointments.router, prefix="/appointments", tags=["appointme
 app.include_router(companies.router, prefix="/companies", tags=["companies"])
 app.include_router(leads.router, prefix="/leads", tags=["leads"])
 if os.getenv('ENABLE_DEBUG_ROUTES', 'false').lower() == 'true':
-    app.include_router(debug_supabase.router, prefix="/debug", tags=["debug"])
     app.include_router(debug_google.router, prefix="/debug", tags=["debug"])
 
 @app.options("/{path:path}")

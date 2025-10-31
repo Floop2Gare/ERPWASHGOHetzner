@@ -8,7 +8,6 @@ import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { RowActionButton } from '../components/RowActionButton';
 import SignatureEditor from '../components/settings/SignatureEditor';
-// import { SupabaseSyncTest } from '../components/SupabaseSyncTest'; // Supprimé - Architecture Backend
 import {
   AuthUser,
   Company,
@@ -1797,9 +1796,9 @@ const SettingsPage = () => {
                 )}
               </div>
 
-              {/* Composant de test Supabase */}
+              {/* Composant de test backend (legacy supprimé) */}
               <div className="mt-8">
-                {/* <SupabaseSyncTest /> Supprimé - Architecture Backend */}
+                {/* Composant de test legacy supprimé */}
               </div>
             </div>
           )}

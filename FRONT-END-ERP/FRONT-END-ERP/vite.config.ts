@@ -17,8 +17,6 @@ export default defineConfig({
         manualChunks: {
           // Chunk principal pour React
           'react-vendor': ['react', 'react-dom'],
-          // Chunk pour Supabase
-          'supabase': ['@supabase/supabase-js'],
           // Chunk pour les utilitaires
           'utils': ['date-fns', 'clsx']
         }
@@ -29,6 +27,8 @@ export default defineConfig({
     // Variables par défaut pour build de prod sur serveur unique (Nginx proxy /api → backend)
     'import.meta.env.VITE_BACKEND_URL': JSON.stringify('/api'),
     'import.meta.env.VITE_DEBUG_MODE': JSON.stringify('false'),
-    'import.meta.env.NODE_ENV': JSON.stringify('production')
+    'import.meta.env.NODE_ENV': JSON.stringify('production'),
+    // Version applicative affichée dans la navbar (à incrémenter: 1.0 → 1.1 → 1.2 ...)
+    'import.meta.env.VITE_APP_VERSION': JSON.stringify('1.0')
   }
 });

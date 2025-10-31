@@ -60,7 +60,7 @@ class Activity(BaseModel):
 
 # Modèles pour les requêtes
 class ClientCreate(BaseModel):
-    id: str
+    id: Optional[str] = None
     type: ClientType
     name: str
     companyName: Optional[str] = None
@@ -93,7 +93,7 @@ class ClientUpdate(BaseModel):
     contacts: Optional[List[Contact]] = None
 
 class ServiceCreate(BaseModel):
-    id: str
+    id: Optional[str] = None
     name: str
     description: Optional[str] = None
     category: Optional[str] = None
@@ -108,7 +108,7 @@ class ServiceUpdate(BaseModel):
     options: Optional[List[ServiceOption]] = None
 
 class AppointmentCreate(BaseModel):
-    id: str
+    id: Optional[str] = None
     clientId: str
     serviceId: str
     optionIds: List[str] = []
@@ -155,7 +155,7 @@ class AppointmentUpdate(BaseModel):
     startTime: Optional[datetime] = None
 
 class CompanyCreate(BaseModel):
-    id: str
+    id: Optional[str] = None
     name: str
     email: Optional[EmailStr] = None
     phone: Optional[str] = None
@@ -200,7 +200,7 @@ class CompanyUpdate(BaseModel):
     planningUser: Optional[str] = None
 
 class LeadCreate(BaseModel):
-    id: str
+    id: Optional[str] = None
     name: str
     email: Optional[EmailStr] = None
     phone: Optional[str] = None

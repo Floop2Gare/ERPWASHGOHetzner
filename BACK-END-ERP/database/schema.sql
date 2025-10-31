@@ -1,5 +1,5 @@
--- Script SQL pour créer toutes les tables de l'ERP Wash&Go
--- À exécuter dans l'éditeur SQL de Supabase
+-- Script SQL (legacy) pour création de tables ERP Wash&Go
+-- Legacy: Supabase retiré. Les migrations officielles sont gérées par Alembic/SQLAlchemy.
 
 -- Table des entreprises
 CREATE TABLE IF NOT EXISTS companies (
@@ -238,44 +238,11 @@ DROP TRIGGER IF EXISTS update_documents_updated_at ON documents;
 CREATE TRIGGER update_documents_updated_at BEFORE UPDATE ON documents FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- RLS (Row Level Security) - Sécurité au niveau des lignes
-ALTER TABLE companies ENABLE ROW LEVEL SECURITY;
-ALTER TABLE clients ENABLE ROW LEVEL SECURITY;
-ALTER TABLE client_contacts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE services ENABLE ROW LEVEL SECURITY;
-ALTER TABLE service_options ENABLE ROW LEVEL SECURITY;
-ALTER TABLE engagements ENABLE ROW LEVEL SECURITY;
-ALTER TABLE leads ENABLE ROW LEVEL SECURITY;
-ALTER TABLE auth_users ENABLE ROW LEVEL SECURITY;
-ALTER TABLE documents ENABLE ROW LEVEL SECURITY;
+-- RLS désactivée (legacy Supabase). À ignorer côté Postgres self-hosted.
 
 -- Politiques RLS (à adapter selon vos besoins)
 -- Pour l'instant, on autorise tout (à sécuriser en production)
-DROP POLICY IF EXISTS "Allow all operations" ON companies;
-CREATE POLICY "Allow all operations" ON companies FOR ALL USING (true);
-
-DROP POLICY IF EXISTS "Allow all operations" ON clients;
-CREATE POLICY "Allow all operations" ON clients FOR ALL USING (true);
-
-DROP POLICY IF EXISTS "Allow all operations" ON client_contacts;
-CREATE POLICY "Allow all operations" ON client_contacts FOR ALL USING (true);
-
-DROP POLICY IF EXISTS "Allow all operations" ON services;
-CREATE POLICY "Allow all operations" ON services FOR ALL USING (true);
-
-DROP POLICY IF EXISTS "Allow all operations" ON service_options;
-CREATE POLICY "Allow all operations" ON service_options FOR ALL USING (true);
-
-DROP POLICY IF EXISTS "Allow all operations" ON engagements;
-CREATE POLICY "Allow all operations" ON engagements FOR ALL USING (true);
-
-DROP POLICY IF EXISTS "Allow all operations" ON leads;
-CREATE POLICY "Allow all operations" ON leads FOR ALL USING (true);
-
-DROP POLICY IF EXISTS "Allow all operations" ON auth_users;
-CREATE POLICY "Allow all operations" ON auth_users FOR ALL USING (true);
-
-DROP POLICY IF EXISTS "Allow all operations" ON documents;
-CREATE POLICY "Allow all operations" ON documents FOR ALL USING (true);
+-- Politiques RLS (legacy Supabase) supprimées.
 
 -- Commentaires sur les tables
 COMMENT ON TABLE companies IS 'Entreprises (Wash&Go France, Île-de-France, etc.)';

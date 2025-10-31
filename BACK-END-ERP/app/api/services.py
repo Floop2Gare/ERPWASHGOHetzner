@@ -1,66 +1,54 @@
 import logging
 from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query, status
 from pydantic import ValidationError
 from datetime import datetime
-from app.models.supabase_client import get_supabase_client
+import sqlalchemy as sa
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from app.schemas.erp import (
     ServiceCreate, ServiceUpdate, ERPResponse, ERPListResponse,
     ServiceOption
 )
-from supabase import Client as SupabaseClient
+from app.db.session import get_db
+from app.db.models import ServiceORM
 import uuid
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-def get_supabase_client_dependency() -> SupabaseClient:
-    try:
-        logger.info("Tentative d'obtention du client Supabase...")
-        client_instance = get_supabase_client()
-        logger.info("Client Supabase obtenu avec succès")
-        return client_instance.get_client()
-    except Exception as e:
-        logger.error(f"Erreur lors de l'initialisation Supabase: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Erreur de connexion Supabase: {str(e)}")
-
-@router.post("/", response_model=ERPResponse)
+@router.post("/", response_model=ERPResponse, status_code=status.HTTP_201_CREATED)
 async def create_service(
     service_data: ServiceCreate,
-    supabase: SupabaseClient = Depends(get_supabase_client_dependency)
+    db: Session = Depends(get_db)
 ):
     """Crée un nouveau service."""
     try:
         logger.info(f"Création d'un nouveau service: {service_data.name}")
         
-        # Générer un ID unique côté serveur
-        new_id = str(uuid.uuid4())
-        
-        # Préparer les données pour Supabase
-        service_dict = {
+        # Générer un ID unique côté serveur si absent
+        new_id = service_data.id or str(uuid.uuid4())
+
+        payload = {
             "id": new_id,
             "name": service_data.name,
             "description": service_data.description,
             "category": service_data.category,
             "active": service_data.active,
             "options": [option.model_dump() for option in service_data.options],
-            "created_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat()
         }
-        
-        # Insérer en base
-        result = supabase.table('services').insert(service_dict).execute()
-        
-        if result.data:
-            logger.info(f"✅ Service créé avec succès: {new_id}")
-            return ERPResponse(success=True, data=result.data[0])
-        else:
-            logger.error("❌ Erreur lors de la création du service: Aucune donnée retournée")
-            return ERPResponse(success=False, error="Erreur lors de la création du service")
+
+        db.add(ServiceORM(**payload))
+        logger.info(f"✅ Service créé avec succès: {new_id}")
+        return ERPResponse(success=True, data=payload)
             
     except ValidationError as ve:
         logger.error(f"Erreur de validation: {ve}")
-        return ERPResponse(success=False, error=f"Données invalides: {str(ve)}")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Données invalides")
+    except IntegrityError as ie:
+        logger.error(f"Conflit d'unicité (name?): {ie}")
+        raise HTTPException(status_code=409, detail="Conflit: données déjà existantes (name)")
     except Exception as e:
         logger.error(f"Erreur lors de la création du service: {e}")
         return ERPResponse(success=False, error=f"Erreur serveur: {str(e)}")
@@ -70,25 +58,34 @@ async def get_all_services(
     limit: Optional[int] = Query(100, ge=1, le=1000),
     offset: Optional[int] = Query(0, ge=0),
     active_only: Optional[bool] = Query(False),
-    supabase: SupabaseClient = Depends(get_supabase_client_dependency)
+    db: Session = Depends(get_db)
 ):
     """Récupère tous les services avec pagination."""
     try:
         logger.info(f"Récupération des services (limit={limit}, offset={offset}, active_only={active_only})")
-        
-        query = supabase.table('services').select('*')
-        
+        stmt = select(ServiceORM)
         if active_only:
-            query = query.eq('active', True)
-        
-        result = query.order('created_at', desc=True).range(offset, offset + limit - 1).execute()
-        
-        if result.data:
-            logger.info(f"✅ {len(result.data)} services récupérés")
-            return ERPListResponse(success=True, data=result.data, count=len(result.data))
-        else:
-            logger.info("Aucun service trouvé")
-            return ERPListResponse(success=True, data=[], count=0)
+            stmt = stmt.where(ServiceORM.active.is_(True))
+        rows = db.execute(
+            stmt.order_by(ServiceORM.created_at.desc()).offset(offset).limit(limit)
+        ).scalars().all()
+        data = [
+            {
+                "id": r.id,
+                "name": r.name,
+                "description": r.description,
+                "category": r.category,
+                "active": r.active,
+                "options": r.options or [],
+                "base_price": float(r.base_price) if r.base_price is not None else 0.0,
+                "base_duration": r.base_duration,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+            }
+            for r in rows
+        ]
+        logger.info(f"✅ {len(data)} services récupérés")
+        return ERPListResponse(success=True, data=data, count=len(data))
             
     except Exception as e:
         logger.error(f"Erreur lors de la récupération des services: {e}")
@@ -97,17 +94,27 @@ async def get_all_services(
 @router.get("/{service_id}", response_model=ERPResponse)
 async def get_service(
     service_id: str,
-    supabase: SupabaseClient = Depends(get_supabase_client_dependency)
+    db: Session = Depends(get_db)
 ):
     """Récupère un service par son ID."""
     try:
         logger.info(f"Récupération du service: {service_id}")
-        
-        result = supabase.table('services').select('*').eq('id', service_id).limit(1).execute()
-        
-        if result.data:
+        r = db.get(ServiceORM, service_id)
+        if r:
+            data = {
+                "id": r.id,
+                "name": r.name,
+                "description": r.description,
+                "category": r.category,
+                "active": r.active,
+                "options": r.options or [],
+                "base_price": float(r.base_price) if r.base_price is not None else 0.0,
+                "base_duration": r.base_duration,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+            }
             logger.info(f"✅ Service trouvé: {service_id}")
-            return ERPResponse(success=True, data=result.data[0])
+            return ERPResponse(success=True, data=data)
         else:
             logger.warning(f"Service non trouvé: {service_id}")
             raise HTTPException(status_code=404, detail="Service non trouvé")
@@ -122,35 +129,29 @@ async def get_service(
 async def update_service(
     service_id: str,
     service_data: ServiceUpdate,
-    supabase: SupabaseClient = Depends(get_supabase_client_dependency)
+    db: Session = Depends(get_db)
 ):
     """Met à jour un service existant."""
     try:
         logger.info(f"Mise à jour du service: {service_id}")
-        
-        # Préparer les données de mise à jour
-        update_dict = {}
-        for field, value in service_data.model_dump(exclude_unset=True).items():
-            if value is not None:
-                if field == "options":
-                    update_dict["options"] = [option.model_dump() if hasattr(option, 'model_dump') else option for option in value]
-                else:
-                    update_dict[field] = value
-        
-        update_dict["updated_at"] = datetime.utcnow().isoformat()
-        
-        # Mettre à jour en base
-        result = supabase.table('services').update(update_dict).eq('id', service_id).execute()
-        
-        if result.data:
-            logger.info(f"✅ Service mis à jour: {service_id}")
-            return ERPResponse(success=True, data=result.data[0])
-        else:
-            logger.warning(f"Service non trouvé pour mise à jour: {service_id}")
+        row = db.get(ServiceORM, service_id)
+        if not row:
             raise HTTPException(status_code=404, detail="Service non trouvé")
+
+        payload = service_data.model_dump(exclude_unset=True)
+        if "options" in payload and payload["options"] is not None:
+            payload["options"] = [o.model_dump() if hasattr(o, 'model_dump') else o for o in payload["options"]]
+        for k, v in payload.items():
+            setattr(row, k, v)
+        row.updated_at = datetime.utcnow()
+        logger.info(f"✅ Service mis à jour: {service_id}")
+        return ERPResponse(success=True, data={"id": service_id})
             
     except HTTPException:
         raise
+    except IntegrityError as ie:
+        logger.error(f"Conflit d'unicité (name?): {ie}")
+        raise HTTPException(status_code=409, detail="Conflit: données déjà existantes (name)")
     except Exception as e:
         logger.error(f"Erreur lors de la mise à jour du service {service_id}: {e}")
         return ERPResponse(success=False, error=f"Erreur serveur: {str(e)}")
@@ -158,21 +159,17 @@ async def update_service(
 @router.delete("/{service_id}", response_model=ERPResponse)
 async def delete_service(
     service_id: str,
-    supabase: SupabaseClient = Depends(get_supabase_client_dependency)
+    db: Session = Depends(get_db)
 ):
     """Supprime un service."""
     try:
         logger.info(f"Suppression du service: {service_id}")
-        
-        result = supabase.table('services').delete().eq('id', service_id).execute()
-        
-        # Vérifier si la suppression a réussi (result.count peut être None)
-        if result.count is not None and result.count > 0:
-            logger.info(f"✅ Service supprimé: {service_id}")
-            return ERPResponse(success=True, data={"id": service_id, "message": "Service supprimé avec succès"})
-        else:
-            logger.warning(f"Service non trouvé pour suppression: {service_id}")
+        row = db.get(ServiceORM, service_id)
+        if not row:
             raise HTTPException(status_code=404, detail="Service non trouvé")
+        db.delete(row)
+        logger.info(f"✅ Service supprimé: {service_id}")
+        return ERPResponse(success=True, data={"id": service_id, "message": "Service supprimé avec succès"})
             
     except HTTPException:
         raise
@@ -183,22 +180,37 @@ async def delete_service(
 @router.get("/search/{search_term}", response_model=ERPListResponse)
 async def search_services(
     search_term: str,
-    supabase: SupabaseClient = Depends(get_supabase_client_dependency)
+    db: Session = Depends(get_db)
 ):
     """Recherche des services par nom ou description."""
     try:
         logger.info(f"Recherche de services avec le terme: {search_term}")
-        
-        result = supabase.table('services').select('*').or_(
-            f'name.ilike.%{search_term}%,description.ilike.%{search_term}%'
-        ).order('created_at', desc=True).execute()
-        
-        if result.data:
-            logger.info(f"✅ {len(result.data)} services trouvés pour '{search_term}'")
-            return ERPListResponse(success=True, data=result.data, count=len(result.data))
-        else:
-            logger.info(f"Aucun service trouvé pour '{search_term}'")
-            return ERPListResponse(success=True, data=[], count=0)
+        term = f"%{search_term}%"
+        rows = db.execute(
+            select(ServiceORM).where(
+                sa.or_(
+                    ServiceORM.name.ilike(term),
+                    ServiceORM.description.ilike(term),
+                )
+            ).order_by(ServiceORM.created_at.desc())
+        ).scalars().all()
+        data = [
+            {
+                "id": r.id,
+                "name": r.name,
+                "description": r.description,
+                "category": r.category,
+                "active": r.active,
+                "options": r.options or [],
+                "base_price": float(r.base_price) if r.base_price is not None else 0.0,
+                "base_duration": r.base_duration,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+            }
+            for r in rows
+        ]
+        logger.info(f"✅ {len(data)} services trouvés pour '{search_term}'")
+        return ERPListResponse(success=True, data=data, count=len(data))
             
     except Exception as e:
         logger.error(f"Erreur lors de la recherche de services avec '{search_term}': {e}")
@@ -206,21 +218,15 @@ async def search_services(
 
 @router.get("/categories", response_model=ERPListResponse)
 async def get_service_categories(
-    supabase: SupabaseClient = Depends(get_supabase_client_dependency)
+    db: Session = Depends(get_db)
 ):
     """Récupère toutes les catégories de services uniques."""
     try:
         logger.info("Récupération des catégories de services")
-        
-        result = supabase.table('services').select('category').execute()
-        
-        if result.data:
-            categories = sorted(list(set([item['category'] for item in result.data if item['category']])))
-            logger.info(f"✅ {len(categories)} catégories trouvées")
-            return ERPListResponse(success=True, data=categories, count=len(categories))
-        else:
-            logger.info("Aucune catégorie trouvée")
-            return ERPListResponse(success=True, data=[], count=0)
+        rows = db.execute(sa.text("SELECT DISTINCT category FROM services WHERE category IS NOT NULL"))
+        categories = sorted([r[0] for r in rows if r[0] is not None])
+        logger.info(f"✅ {len(categories)} catégories trouvées")
+        return ERPListResponse(success=True, data=categories, count=len(categories))
             
     except Exception as e:
         logger.error(f"Erreur lors de la récupération des catégories de services: {e}")
@@ -229,20 +235,31 @@ async def get_service_categories(
 @router.get("/category/{category}", response_model=ERPListResponse)
 async def get_services_by_category(
     category: str,
-    supabase: SupabaseClient = Depends(get_supabase_client_dependency)
+    db: Session = Depends(get_db)
 ):
     """Récupère les services par catégorie."""
     try:
         logger.info(f"Récupération des services de la catégorie: {category}")
-        
-        result = supabase.table('services').select('*').eq('category', category).order('name', desc=False).execute()
-        
-        if result.data:
-            logger.info(f"✅ {len(result.data)} services trouvés pour la catégorie '{category}'")
-            return ERPListResponse(success=True, data=result.data, count=len(result.data))
-        else:
-            logger.info(f"Aucun service trouvé pour la catégorie '{category}'")
-            return ERPListResponse(success=True, data=[], count=0)
+        rows = db.execute(
+            select(ServiceORM).where(ServiceORM.category == category).order_by(ServiceORM.name.asc())
+        ).scalars().all()
+        data = [
+            {
+                "id": r.id,
+                "name": r.name,
+                "description": r.description,
+                "category": r.category,
+                "active": r.active,
+                "options": r.options or [],
+                "base_price": float(r.base_price) if r.base_price is not None else 0.0,
+                "base_duration": r.base_duration,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+            }
+            for r in rows
+        ]
+        logger.info(f"✅ {len(data)} services trouvés pour la catégorie '{category}'")
+        return ERPListResponse(success=True, data=data, count=len(data))
             
     except Exception as e:
         logger.error(f"Erreur lors de la récupération des services de la catégorie '{category}': {e}")
