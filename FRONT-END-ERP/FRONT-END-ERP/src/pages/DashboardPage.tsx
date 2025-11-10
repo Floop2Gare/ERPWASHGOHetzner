@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, type CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
 import {
   addDays,
@@ -13,7 +13,6 @@ import { fr } from 'date-fns/locale';
 
 import { useAppData } from '../store/useAppData';
 import { formatCurrency, formatDuration } from '../lib/format';
-import { BRAND_NAME } from '../lib/branding';
 
 const PrestationsIcon = () => (
   <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={1.6}>
@@ -48,15 +47,27 @@ const QuoteIcon = () => (
 
 const ServicesIcon = () => (
   <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={1.6}>
-    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" strokeLinecap="round" strokeLinejoin="round" />
+    <path
+      d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
     <path d="M8 12h8M8 16h8" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 );
 
 const PurchasesIcon = () => (
   <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={1.6}>
-    <path d="M3 3h2l.4 2M7 13h10l4-8H5.4m0 0L7 13m0 0l-2.5 5M7 13l2.5 5m0 0h8" strokeLinecap="round" strokeLinejoin="round" />
-    <path d="M9 19.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM20 19.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z" strokeLinecap="round" strokeLinejoin="round" />
+    <path
+      d="M3 3h2l.4 2M7 13h10l4-8H5.4m0 0L7 13m0 0l-2.5 5M7 13l2.5 5m0 0h8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <path
+      d="M9 19.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM20 19.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
   </svg>
 );
 
@@ -106,7 +117,7 @@ const StatsIcon = () => (
 const SettingsIcon = () => (
   <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={1.6}>
     <circle cx="12" cy="12" r="3" strokeLinecap="round" strokeLinejoin="round" />
-    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1 1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1 1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 );
 
@@ -143,6 +154,16 @@ const IconMail = () => (
 
 const followUpThresholdDays = 7;
 
+type QuickLinkThemeVars = CSSProperties & {
+  '--ql-bg': string;
+  '--ql-border': string;
+  '--ql-border-hover': string;
+  '--ql-icon-bg': string;
+  '--ql-icon-color': string;
+  '--ql-text': string;
+  '--ql-shadow': string;
+};
+
 const DashboardPage = () => {
   const {
     engagements,
@@ -154,6 +175,7 @@ const DashboardPage = () => {
     services,
     recordLeadActivity,
     updateLead,
+    userProfile,
   } = useAppData();
 
   const clientsById = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
@@ -323,112 +345,216 @@ const DashboardPage = () => {
       to: '/service',
       description: 'Construire une prestation',
       icon: <ServicesIcon />,
+      accentBg: '#f4f6ff',
+      accentBorder: '#d8dffe',
+      accentHover: '#c3d0fd',
+      iconBg: 'rgba(79, 70, 229, 0.12)',
+      iconColor: '#4338ca',
+      textColor: '#1e1b4b',
+      shadow: 'rgba(79, 70, 229, 0.15)',
     },
     {
       label: 'Achats',
       to: '/achats',
       description: 'Suivi des dépenses',
       icon: <PurchasesIcon />,
+      accentBg: '#fdf1f2',
+      accentBorder: '#fbd5d9',
+      accentHover: '#f8bfc5',
+      iconBg: 'rgba(239, 68, 68, 0.12)',
+      iconColor: '#be123c',
+      textColor: '#7f1d1d',
+      shadow: 'rgba(244, 114, 182, 0.15)',
     },
     {
       label: 'Documents',
       to: '/documents',
       description: 'Bibliothèque et modèles',
       icon: <DocumentsIcon />,
+      accentBg: '#f3f9f7',
+      accentBorder: '#cde9dc',
+      accentHover: '#b8e1d1',
+      iconBg: 'rgba(16, 185, 129, 0.12)',
+      iconColor: '#047857',
+      textColor: '#065f46',
+      shadow: 'rgba(45, 212, 191, 0.15)',
     },
     {
       label: 'Leads',
       to: '/lead',
       description: 'Relancer vos prospects',
       icon: <LeadsIcon />,
+      accentBg: '#f8f5ff',
+      accentBorder: '#e0d8fc',
+      accentHover: '#cabcf9',
+      iconBg: 'rgba(124, 58, 237, 0.12)',
+      iconColor: '#6d28d9',
+      textColor: '#4c1d95',
+      shadow: 'rgba(139, 92, 246, 0.18)',
     },
     {
       label: 'Clients',
       to: '/clients',
       description: 'Fiches et historiques',
       icon: <ClientsIcon />,
+      accentBg: '#f6f9ff',
+      accentBorder: '#cfdef9',
+      accentHover: '#b9d1f9',
+      iconBg: 'rgba(59, 130, 246, 0.12)',
+      iconColor: '#2563eb',
+      textColor: '#1e3a8a',
+      shadow: 'rgba(59, 130, 246, 0.15)',
     },
     {
       label: 'Planning',
       to: '/planning',
       description: 'Vue hebdomadaire complète',
       icon: <PlanningIcon />,
+      accentBg: '#fff7ed',
+      accentBorder: '#fed7aa',
+      accentHover: '#fdba74',
+      iconBg: 'rgba(249, 115, 22, 0.12)',
+      iconColor: '#ea580c',
+      textColor: '#9a3412',
+      shadow: 'rgba(249, 115, 22, 0.15)',
     },
     {
       label: 'Statistiques',
       to: '/stats',
       description: 'Indicateurs détaillés',
       icon: <StatsIcon />,
+      accentBg: '#f4f5f9',
+      accentBorder: '#d6d7df',
+      accentHover: '#c5c7d4',
+      iconBg: 'rgba(107, 114, 128, 0.12)',
+      iconColor: '#374151',
+      textColor: '#111827',
+      shadow: 'rgba(107, 114, 128, 0.12)',
     },
     {
-      label: 'Paramètres',
-      to: '/parametres',
-      description: 'Personnaliser Wash&Go',
-      icon: <SettingsIcon />,
+      label: 'Utilisateurs',
+      to: '/parametres?tab=utilisateurs',
+      description: 'Gérer les accès et rôles',
+      icon: <UsersIcon />,
+      accentBg: '#f0f9ff',
+      accentBorder: '#bae6fd',
+      accentHover: '#7dd3fc',
+      iconBg: 'rgba(14, 165, 233, 0.12)',
+      iconColor: '#0ea5e9',
+      textColor: '#0f172a',
+      shadow: 'rgba(14, 165, 233, 0.15)',
     },
   ];
 
+  const firstName =
+    [userProfile?.firstName, userProfile?.lastName].filter(Boolean).join(' ').trim() || 'Wash&Go';
+  const todayLabel = format(today, "EEEE d MMMM yyyy", { locale: fr });
+  const quickLinkStyle = (link: (typeof quickLinks)[number]): QuickLinkThemeVars => ({
+    '--ql-bg': link.accentBg,
+    '--ql-border': link.accentBorder,
+    '--ql-border-hover': link.accentHover,
+    '--ql-icon-bg': link.iconBg,
+    '--ql-icon-color': link.iconColor,
+    '--ql-text': link.textColor,
+    '--ql-shadow': link.shadow,
+  });
+
   return (
-    <div className="space-y-8">
-      <header className="dashboard-header-gradient relative overflow-hidden rounded-2xl border border-border p-8">
-        <div className="relative z-10 space-y-3">
-          <div className="space-y-1">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">Vue d'ensemble</p>
-            <h1 className="text-3xl font-bold text-text">Tableau de bord</h1>
+    <div className="dashboard-page space-y-10">
+      <header className="dashboard-hero">
+        <div className="dashboard-hero__content">
+          <div className="dashboard-hero__intro">
+            <p className="dashboard-hero__eyebrow">Tableau de bord</p>
+            <h1 className="dashboard-hero__title">Bonjour {firstName},</h1>
+            <p className="dashboard-hero__subtitle">
+              Nous sommes le {todayLabel}. Visualisez vos priorités du jour et pilotez vos opérations en un coup d’œil.
+            </p>
           </div>
-          <p className="max-w-2xl text-sm leading-6 text-muted">
-            Surveillez vos indicateurs clés et accédez rapidement aux modules essentiels de {BRAND_NAME}.
-          </p>
         </div>
-        <div className="absolute -right-8 -top-8 h-32 w-32 rounded-full bg-gradient-to-br from-primary/10 to-primary/5"></div>
-        <div className="absolute -bottom-4 -left-4 h-24 w-24 rounded-full bg-gradient-to-tr from-primary/8 to-transparent"></div>
+        <div className="dashboard-hero__glow" aria-hidden />
       </header>
 
-      {/* Section de diagnostic supprimée */}
-
-      <section className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-text">Accès rapides</h2>
-            <p className="mt-1 text-sm text-muted">Retrouvez vos espaces de travail en un clic.</p>
+      <nav className="dashboard-secondary-bar">
+        <div className="dashboard-secondary-bar__content">
+          <div className="dashboard-secondary-bar__left">
+            <span className="dashboard-secondary-bar__label">Vue d’ensemble</span>
+          </div>
+          <div className="dashboard-secondary-bar__chips">
+            <span className="dashboard-secondary-bar__chip">
+              <span className="dashboard-secondary-bar__chip-value">{weeklyEngagements.length}</span>
+              <span className="dashboard-secondary-bar__chip-label">Interventions planifiées</span>
+            </span>
+            <span className="dashboard-secondary-bar__chip">
+              <span className="dashboard-secondary-bar__chip-value">{leadsToContact.length}</span>
+              <span className="dashboard-secondary-bar__chip-label">Leads à relancer</span>
+            </span>
+            <span className="dashboard-secondary-bar__chip">
+              <span className="dashboard-secondary-bar__chip-value">{quotesToSend.length}</span>
+              <span className="dashboard-secondary-bar__chip-label">Devis à envoyer</span>
+            </span>
           </div>
         </div>
-        <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 lg:mx-auto lg:max-w-7xl">
-          {quickLinks.map((link) => (
-            <Link
-              key={link.to}
-              to={link.to}
-              className="quick-link-enhanced quick-link group flex h-full flex-col gap-3 px-4 py-4 text-left focus-visible:outline-none"
-            >
-              <span className="quick-link__icon text-primary/60 group-hover:text-primary transition-colors duration-200">{link.icon}</span>
-              <div className="space-y-1">
-                <p className="quick-link__label text-sm font-semibold">{link.label}</p>
-                <p className="text-xs text-muted leading-relaxed">{link.description}</p>
-              </div>
-            </Link>
-          ))}
+      </nav>
+
+      <section className="space-y-5">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="dashboard-section-title">Accès rapides</h2>
+            <p className="dashboard-section-subtitle">Retrouvez vos espaces de travail en un clic.</p>
+          </div>
+        </div>
+        <div className="dashboard-quick-links-grid">
+          {quickLinks.map((link) => {
+            const style = quickLinkStyle(link);
+            return (
+              <Link
+                key={link.to}
+                to={link.to}
+                className="dashboard-quick-link group focus-visible:outline-none"
+                style={style}
+              >
+                <span className="dashboard-quick-link__icon">
+                  <span className="dashboard-quick-link__icon-surface">{link.icon}</span>
+                </span>
+                <div className="dashboard-quick-link__body">
+                  <p className="dashboard-quick-link__label">{link.label}</p>
+                  <p className="dashboard-quick-link__description">{link.description}</p>
+                </div>
+                <span className="dashboard-quick-link__cta">
+                  Ouvrir
+                  <svg viewBox="0 0 16 16" aria-hidden="true">
+                    <path
+                      d="M6 3l5 5-5 5M3 8h8"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </span>
+              </Link>
+            );
+          })}
         </div>
       </section>
 
       <section className="space-y-4">
         <div>
-          <h2 className="text-lg font-semibold text-text">Chiffres clés</h2>
-          <p className="mt-1 text-sm text-muted">Suivez vos indicateurs consolidés.</p>
+          <h2 className="dashboard-section-title">Chiffres clés</h2>
+          <p className="dashboard-section-subtitle">Suivez vos indicateurs consolidés.</p>
         </div>
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {kpiCards.map((card) => (
-            <div key={card.label} className="kpi-card-hover group relative overflow-hidden rounded-2xl border border-border bg-surface p-6 hover:border-primary/30">
+            <div key={card.label} className="dashboard-kpi group">
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">{card.label}</p>
-                  <p className="mt-2 text-2xl font-bold text-text">{card.value}</p>
-                  <p className="mt-2 text-xs text-muted leading-relaxed">{card.description}</p>
+                  <p className="dashboard-kpi__eyebrow">{card.label}</p>
+                  <p className="dashboard-kpi__value">{card.value}</p>
+                  <p className="dashboard-kpi__description">{card.description}</p>
                 </div>
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary transition-colors duration-200 group-hover:bg-primary/15">
-                  {card.icon}
-                </div>
+                <div className="dashboard-kpi__icon">{card.icon}</div>
               </div>
-              <div className="absolute -right-2 -top-2 h-16 w-16 rounded-full bg-gradient-to-br from-primary/5 to-transparent opacity-0 transition-opacity duration-200 group-hover:opacity-100"></div>
+              <div className="dashboard-kpi__glow" aria-hidden />
             </div>
           ))}
         </div>
@@ -437,8 +563,8 @@ const DashboardPage = () => {
       <section className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2.5">
           <div>
-            <h2 className="text-lg font-semibold text-text">À traiter</h2>
-            <p className="mt-1 text-sm text-muted">Vos actions prioritaires du moment.</p>
+            <h2 className="dashboard-section-title">À traiter</h2>
+            <p className="dashboard-section-subtitle">Vos actions prioritaires du moment.</p>
           </div>
         </div>
         <div className="grid gap-6 lg:grid-cols-2">
@@ -543,8 +669,8 @@ const DashboardPage = () => {
       <section className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2.5">
           <div>
-            <h2 className="text-lg font-semibold text-text">Planning de la semaine</h2>
-            <p className="mt-1 text-sm text-muted">Vue synthétique des interventions du lundi au dimanche.</p>
+            <h2 className="dashboard-section-title">Planning de la semaine</h2>
+            <p className="dashboard-section-subtitle">Vue synthétique des interventions du lundi au dimanche.</p>
           </div>
           <Link
             to="/planning"
@@ -557,7 +683,10 @@ const DashboardPage = () => {
         <div className="overflow-x-auto">
           <div className="grid min-w-[640px] grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
             {weekDays.map((day) => (
-              <div key={day.shortLabel} className="planning-day-card group relative overflow-hidden rounded-2xl border border-border bg-surface p-4 hover:border-primary/30">
+              <div
+                key={day.shortLabel}
+                className="planning-day-card group relative overflow-hidden rounded-2xl border border-border bg-surface p-4 hover:border-primary/30"
+              >
                 <div className="flex items-baseline justify-between gap-2">
                   <p className="text-sm font-semibold uppercase tracking-wide text-text">
                     {day.label.charAt(0).toUpperCase() + day.label.slice(1)}
@@ -574,7 +703,10 @@ const DashboardPage = () => {
                 ) : (
                   <div className="mt-4 space-y-2">
                     {day.events.map((event) => (
-                      <div key={event.id} className="rounded-lg border border-border bg-surface-tint p-3 transition-colors duration-200 group-hover:border-primary/20">
+                      <div
+                        key={event.id}
+                        className="rounded-lg border border-border bg-surface-tint p-3 transition-colors duration-200 group-hover:border-primary/20"
+                      >
                         <p className="text-xs font-semibold text-text">{event.clientName}</p>
                         <p className="mt-1 text-[11px] text-muted">{event.serviceName}</p>
                         <p className="mt-1 text-[11px] font-medium text-primary">{event.timeRange}</p>
@@ -593,4 +725,5 @@ const DashboardPage = () => {
 };
 
 export default DashboardPage;
+
 

@@ -6,7 +6,19 @@ import { Button } from '../components/Button';
 import { Card } from '../components/Card';
 import { Table } from '../components/Table';
 import { RowActionButton } from '../components/RowActionButton';
-import { IconConvert, IconEdit, IconPaperPlane, IconTrash } from '../components/icons';
+import {
+  IconConvert,
+  IconEdit,
+  IconPaperPlane,
+  IconTrash,
+  IconClock,
+  IconCall,
+  IconNote,
+  IconMail,
+  IconPhone,
+  IconDocument,
+  IconService,
+} from '../components/icons';
 import { formatCurrency, formatDateTime } from '../lib/format';
 import { downloadCsv } from '../lib/csv';
 import { BRAND_NAME } from '../lib/branding';
@@ -134,11 +146,13 @@ const LeadPage = () => {
   const [noteType, setNoteType] = useState<LeadActivityType>('note');
   const [noteDraft, setNoteDraft] = useState('');
   const [draggingLeadId, setDraggingLeadId] = useState<string | null>(null);
+  const [hoveredStatus, setHoveredStatus] = useState<LeadStatus | null>(null);
 
   const listSectionRef = useRef<HTMLDivElement | null>(null);
   const createSectionRef = useRef<HTMLDivElement | null>(null);
   const editSectionRef = useRef<HTMLDivElement | null>(null);
   const importInputRef = useRef<HTMLInputElement | null>(null);
+  const leadRefs = useRef<Record<string, HTMLElement | null>>({});
 
   const owners = useMemo(
     () => Array.from(new Set(leads.map((lead) => lead.owner))).sort((a, b) => a.localeCompare(b)),
@@ -289,6 +303,26 @@ const LeadPage = () => {
       listSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
   }, []);
+
+  const scrollToLead = useCallback((leadId: string) => {
+    const attemptScroll = (retries = 8) => {
+      const element = leadRefs.current[leadId];
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
+      if (retries > 0) {
+        window.requestAnimationFrame(() => attemptScroll(retries - 1));
+      }
+    };
+    attemptScroll();
+  }, []);
+
+  const handlePipelineLeadClick = (leadId: string) => {
+    setView('table');
+    setHoveredStatus(null);
+    window.requestAnimationFrame(() => scrollToLead(leadId));
+  };
 
   const mapFormToPayload = () => {
     const tags = leadForm.tags
@@ -673,12 +707,12 @@ const LeadPage = () => {
       />
       <span>Entreprise / Contact</span>
     </div>,
+    'Statut',
+    'Prochaine action',
+    'Valeur estimée',
     'Téléphone',
     'Email',
-    'Statut',
     'Source',
-    'Prochaine action',
-    'Propriétaire',
     'Actions',
   ];
 
@@ -692,7 +726,17 @@ const LeadPage = () => {
         : null;
 
     return [
-      <div key={`${lead.id}-identity`} className="flex items-start gap-3">
+      <div
+        key={`${lead.id}-identity`}
+        ref={(element) => {
+          if (element) {
+            leadRefs.current[lead.id] = element;
+          } else {
+            delete leadRefs.current[lead.id];
+          }
+        }}
+        className="flex items-start gap-3"
+      >
         <input
           type="checkbox"
           className="table-checkbox mt-0.5 h-4 w-4 flex-shrink-0 rounded focus:ring-primary/40"
@@ -708,6 +752,37 @@ const LeadPage = () => {
             <p className="text-[10px] uppercase tracking-[0.24em] text-slate-400">{lead.tags.join(' · ')}</p>
           )}
         </div>
+      </div>,
+      <span key={`${lead.id}-status`} className="inline-flex items-center">
+        <span
+          className={clsx(
+            'inline-flex items-center rounded-full border-2 px-3.5 py-1.5 text-xs font-bold shadow-sm transition-all hover:scale-105',
+            statusTone[lead.status]
+          )}
+        >
+          <span className="mr-1.5 inline-block h-2 w-2 rounded-full bg-current opacity-60" />
+          {lead.status}
+        </span>
+      </span>,
+      <div key={`${lead.id}-next`} className="space-y-1">
+        <div className="flex items-center gap-1.5">
+          {lead.nextStepDate && (
+            <IconClock />
+          )}
+          <p className="font-semibold text-slate-900">{nextStep}</p>
+        </div>
+        {lead.nextStepNote && <p className="text-[11px] text-slate-600">{lead.nextStepNote}</p>}
+        {lastContact && <p className="text-[10px] text-slate-400">Dernier contact {lastContact}</p>}
+      </div>,
+      <div key={`${lead.id}-value`} className="space-y-1">
+        {estimatedValue ? (
+          <div className="flex items-baseline gap-1">
+            <p className="font-bold text-xl text-primary drop-shadow-sm">{estimatedValue}</p>
+            <span className="text-[10px] text-slate-400">€</span>
+          </div>
+        ) : (
+          <p className="text-slate-400">—</p>
+        )}
       </div>,
       <a
         key={`${lead.id}-phone`}
@@ -725,28 +800,9 @@ const LeadPage = () => {
       >
         {lead.email || '—'}
       </a>,
-      <span key={`${lead.id}-status`} className="inline-flex items-center">
-        <span
-          className={clsx(
-            'inline-flex items-center rounded-full border px-2 py-1 text-[11px] font-medium',
-            statusTone[lead.status]
-          )}
-        >
-          {lead.status}
-        </span>
-      </span>,
       <div key={`${lead.id}-source`} className="space-y-1">
         <p className="text-slate-700">{lead.source || '—'}</p>
         {lead.segment && <p className="text-[11px] text-slate-500">{lead.segment}</p>}
-      </div>,
-      <div key={`${lead.id}-next`} className="space-y-1">
-        <p className="font-medium text-slate-900">{nextStep}</p>
-        {lead.nextStepNote && <p className="text-[11px] text-slate-500">{lead.nextStepNote}</p>}
-        {lastContact && <p className="text-[10px] text-slate-400">Dernier contact {lastContact}</p>}
-      </div>,
-      <div key={`${lead.id}-owner`} className="space-y-1">
-        <p className="font-medium text-slate-900">{lead.owner}</p>
-        {estimatedValue && <p className="text-[11px] text-slate-500">{estimatedValue}</p>}
       </div>,
       <div key={`${lead.id}-actions`} className="flex flex-wrap justify-end gap-1">
         {hasPermission('lead.edit') && (
@@ -789,10 +845,14 @@ const LeadPage = () => {
 
   const leadCount = filteredLeads.length;
 
-  const leadsByStatus = pipelineStatuses.map((status) => ({
-    status,
-    leads: filteredLeads.filter((lead) => lead.status === status),
-  }));
+  const leadsByStatus = useMemo(
+    () =>
+      pipelineStatuses.map((status) => ({
+        status,
+        leads: filteredLeads.filter((lead) => lead.status === status),
+      })),
+    [filteredLeads]
+  );
 
   const kanban = (
     <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -868,20 +928,55 @@ const LeadPage = () => {
 
   const renderActivities = (lead: Lead) => {
     if (!lead.activities.length) {
-      return <p className="text-xs text-slate-500">Aucune note pour le moment.</p>;
+      return <p className="text-xs text-slate-500">Aucune activité pour le moment.</p>;
     }
+    const sortedActivities = [...lead.activities].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
     return (
-      <ul className="space-y-3">
-        {lead.activities.map((activity) => (
-          <li key={activity.id} className="rounded-soft border border-slate-200 bg-slate-50/60 p-3 text-xs text-slate-600">
-            <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.2em] text-slate-400">
-              <span>{activity.type === 'call' ? 'Appel' : 'Note'}</span>
-              <span>{formatDateTime(activity.createdAt)}</span>
-            </div>
-            <p className="mt-2 whitespace-pre-line text-slate-700">{activity.content}</p>
-          </li>
-        ))}
-      </ul>
+      <div className="relative">
+        {/* Timeline verticale */}
+        <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-slate-200" />
+        <ul className="space-y-4">
+          {sortedActivities.map((activity, index) => (
+            <li key={activity.id} className="relative flex gap-4">
+              {/* Point de timeline */}
+              <div className={clsx(
+                "relative z-10 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full border-2 border-white shadow-lg transition-all",
+                activity.type === 'call' 
+                  ? 'bg-gradient-to-br from-primary to-primary/80' 
+                  : 'bg-gradient-to-br from-slate-400 to-slate-500'
+              )}>
+                {activity.type === 'call' ? (
+                  <IconCall />
+                ) : (
+                  <IconNote />
+                )}
+              </div>
+              {/* Contenu de l'activité */}
+              <div className="flex-1 rounded-xl border border-slate-200/60 bg-white p-4 shadow-md transition-all hover:shadow-lg">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-700">
+                    {activity.type === 'call' ? (
+                      <>
+                        <IconCall />
+                        Appel téléphonique
+                      </>
+                    ) : (
+                      <>
+                        <IconNote />
+                        Note interne
+                      </>
+                    )}
+                  </span>
+                  <span className="text-[10px] text-slate-400">{formatDateTime(activity.createdAt)}</span>
+                </div>
+                <p className="whitespace-pre-line text-xs text-slate-700">{activity.content}</p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
     );
   };
 
@@ -920,6 +1015,158 @@ const LeadPage = () => {
           </div>
         }
       >
+        {/* Pipeline simplifié */}
+        <div className="mb-2 flex items-center justify-between text-xs font-medium text-slate-500">
+          <span>Pipeline commercial</span>
+          <span>{leadCount} leads</span>
+        </div>
+        <div className="space-y-3">
+          {leadsByStatus.map(({ status, leads: statusLeads }) => {
+            const isFilterActive = filters.status === status;
+            const isHovered = hoveredStatus === status;
+            const shouldShowList = isFilterActive || isHovered;
+            return (
+              <div
+                key={status}
+                className={clsx(
+                  'rounded-md border border-slate-200 bg-white transition-shadow focus-within:border-primary/50 focus-within:shadow-sm',
+                  isHovered && 'border-primary/40 shadow-sm'
+                )}
+                onMouseEnter={() => setHoveredStatus(status)}
+                onMouseLeave={() =>
+                  setHoveredStatus((current) => (current === status ? null : current))
+                }
+                onFocusCapture={() => setHoveredStatus(status)}
+                onBlurCapture={(event) => {
+                  const next = event.relatedTarget as Node | null;
+                  if (!next || !event.currentTarget.contains(next)) {
+                    setHoveredStatus((current) => (current === status ? null : current));
+                  }
+                }}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setFilters((prev) => ({
+                        ...prev,
+                        status: prev.status === status ? 'Tous' : status,
+                      }))
+                    }
+                    className={clsx(
+                      'flex items-center gap-3 rounded-sm px-2 py-1 text-left text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
+                      isFilterActive
+                        ? 'bg-primary/5 text-slate-900'
+                        : 'text-slate-600 hover:bg-slate-50'
+                    )}
+                  >
+                    <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                      {status}
+                    </span>
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">
+                      {statusLeads.length}
+                    </span>
+                  </button>
+                  {statusLeads.length > 0 && (
+                    <span className="text-[11px] text-slate-400">
+                      Survolez pour explorer • Cliquez pour filtrer
+                    </span>
+                  )}
+                </div>
+                {shouldShowList && (
+                  <div className="border-t border-slate-100">
+                    {statusLeads.length ? (
+                      <div className="flex gap-3 overflow-x-auto px-3 py-3">
+                        {statusLeads.map((lead) => {
+                          const nextStep = lead.nextStepDate
+                            ? formatShortDate(lead.nextStepDate)
+                            : null;
+                          const estimatedValue =
+                            lead.estimatedValue !== null && lead.estimatedValue !== undefined
+                              ? formatCurrency(lead.estimatedValue)
+                              : null;
+                          return (
+                            <div
+                              key={lead.id}
+                              className="flex min-w-[230px] flex-shrink-0 flex-col justify-between rounded-md border border-slate-200 bg-slate-50/60 px-3 py-3 text-sm text-slate-600 transition hover:border-primary/40 hover:bg-white"
+                            >
+                              <button
+                                type="button"
+                                onClick={() => handlePipelineLeadClick(lead.id)}
+                                className="text-left"
+                              >
+                                <p className="font-semibold text-slate-900">
+                                  {lead.company || lead.contact || 'Lead'}
+                                </p>
+                                <div className="mt-1 space-y-1 text-[11px] text-slate-500">
+                                  {lead.contact && <p>Contact : {lead.contact}</p>}
+                                  {nextStep && <p>Prochaine action : {nextStep}</p>}
+                                  {lead.owner && <p>Responsable : {lead.owner}</p>}
+                                  {estimatedValue && <p>Valeur : {estimatedValue} €</p>}
+                                </div>
+                                {lead.tags.length > 0 && (
+                                  <div className="mt-1 flex flex-wrap gap-1 text-[10px] uppercase tracking-[0.18em] text-slate-400">
+                                    {lead.tags.map((tag) => (
+                                      <span key={tag} className="rounded-sm bg-slate-100 px-1 py-0.5">
+                                        {tag}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                                {lead.nextStepNote && (
+                                  <p className="mt-2 text-[11px] text-slate-500">
+                                    {lead.nextStepNote}
+                                  </p>
+                                )}
+                              </button>
+                              <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
+                                {lead.phone && (
+                                  <a
+                                    href={`tel:${lead.phone}`}
+                                    onClick={(event) => event.stopPropagation()}
+                                    className="inline-flex items-center gap-1 rounded-sm border border-slate-200 px-2 py-1 text-slate-600 transition hover:border-primary/30 hover:text-primary"
+                                  >
+                                    <IconPhone />
+                                    Appeler
+                                  </a>
+                                )}
+                                {lead.email && (
+                                  <a
+                                    href={`mailto:${lead.email}`}
+                                    onClick={(event) => event.stopPropagation()}
+                                    className="inline-flex items-center gap-1 rounded-sm border border-slate-200 px-2 py-1 text-slate-600 transition hover:border-primary/30 hover:text-primary"
+                                  >
+                                    <IconMail />
+                                    Email
+                                  </a>
+                                )}
+                                <Button
+                                  size="xs"
+                                  variant="ghost"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    handleOpenEdit(lead);
+                                  }}
+                                >
+                                  Détails
+                                </Button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="px-3 py-4 text-sm text-slate-400">
+                        Aucun client dans cette étape.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
         <div className="grid gap-4 md:grid-cols-5">
           <div className="md:col-span-2">
             <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-search">
@@ -1109,6 +1356,13 @@ const LeadPage = () => {
                       key={lead.id}
                       role="button"
                       tabIndex={0}
+                      ref={(element) => {
+                        if (element) {
+                          leadRefs.current[lead.id] = element;
+                        } else {
+                          delete leadRefs.current[lead.id];
+                        }
+                      }}
                       className={clsx(
                         'rounded-soft border border-slate-200 bg-white px-3 py-3 text-[13px] text-slate-700 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
                         'cursor-pointer hover:bg-slate-100',
@@ -1233,225 +1487,259 @@ const LeadPage = () => {
             }
             className="lead-card"
           >
-            <form onSubmit={handleCreateSubmit} className="space-y-5 text-sm text-slate-700">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-company">
-                    Entreprise
-                  </label>
-                  <input
-                    id="lead-company"
-                    value={leadForm.company}
-                    onChange={(event) => setLeadForm((draft) => ({ ...draft, company: event.target.value }))}
-                    className="w-full rounded-soft border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                    required
-                  />
+            <form onSubmit={handleCreateSubmit} className="space-y-6 text-sm text-slate-700">
+              {/* Section 1: Informations de contact */}
+              <section className="rounded-2xl border border-slate-200/60 bg-gradient-to-br from-white via-slate-50/30 to-white p-6 shadow-[0_4px_20px_-2px_rgba(0,0,0,0.08)]">
+                <div className="mb-5 flex items-center gap-3">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/80 text-sm font-bold text-white shadow-md">
+                    1
+                  </div>
+                  <h3 className="text-base font-bold text-slate-900 tracking-tight">Informations de contact</h3>
                 </div>
-                <div className="space-y-2">
-                  <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-contact">
-                    Contact
-                  </label>
-                  <input
-                    id="lead-contact"
-                    value={leadForm.contact}
-                    onChange={(event) => setLeadForm((draft) => ({ ...draft, contact: event.target.value }))}
-                    className="w-full rounded-soft border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                    required
-                  />
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-company">
+                      Entreprise *
+                    </label>
+                    <input
+                      id="lead-company"
+                      value={leadForm.company}
+                      onChange={(event) => setLeadForm((draft) => ({ ...draft, company: event.target.value }))}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-contact">
+                      Contact *
+                    </label>
+                    <input
+                      id="lead-contact"
+                      value={leadForm.contact}
+                      onChange={(event) => setLeadForm((draft) => ({ ...draft, contact: event.target.value }))}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-phone">
+                      Téléphone
+                    </label>
+                    <input
+                      id="lead-phone"
+                      value={leadForm.phone}
+                      onChange={(event) => setLeadForm((draft) => ({ ...draft, phone: event.target.value }))}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    />
+                    {phoneDuplicate && <p className="text-[11px] font-medium text-rose-600">⚠️ Numéro déjà utilisé.</p>}
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-email">
+                      Email
+                    </label>
+                    <input
+                      id="lead-email"
+                      type="email"
+                      value={leadForm.email}
+                      onChange={(event) => setLeadForm((draft) => ({ ...draft, email: event.target.value }))}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    />
+                    {emailDuplicate && <p className="text-[11px] font-medium text-rose-600">⚠️ Email déjà utilisé.</p>}
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-address">
+                      Adresse
+                    </label>
+                    <input
+                      id="lead-address"
+                      value={leadForm.address}
+                      onChange={(event) => setLeadForm((draft) => ({ ...draft, address: event.target.value }))}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    />
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-phone">
-                    Téléphone
-                  </label>
-                  <input
-                    id="lead-phone"
-                    value={leadForm.phone}
-                    onChange={(event) => setLeadForm((draft) => ({ ...draft, phone: event.target.value }))}
-                    className="w-full rounded-soft border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                  />
-                  {phoneDuplicate && <p className="text-[11px] text-primary">Numéro déjà utilisé.</p>}
+              </section>
+
+              {/* Section 2: Détails commerciaux */}
+              <section className="rounded-2xl border border-slate-200/60 bg-gradient-to-br from-white via-slate-50/30 to-white p-6 shadow-[0_4px_20px_-2px_rgba(0,0,0,0.08)]">
+                <div className="mb-5 flex items-center gap-3">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/80 text-sm font-bold text-white shadow-md">
+                    2
+                  </div>
+                  <h3 className="text-base font-bold text-slate-900 tracking-tight">Détails commerciaux</h3>
                 </div>
-                <div className="space-y-2">
-                  <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-email">
-                    Email
-                  </label>
-                  <input
-                    id="lead-email"
-                    type="email"
-                    value={leadForm.email}
-                    onChange={(event) => setLeadForm((draft) => ({ ...draft, email: event.target.value }))}
-                    className="w-full rounded-soft border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                  />
-                  {emailDuplicate && <p className="text-[11px] text-primary">Email déjà utilisé.</p>}
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-source-create">
-                    Source
-                  </label>
-                  <input
-                    id="lead-source-create"
-                    value={leadForm.source}
-                    onChange={(event) => setLeadForm((draft) => ({ ...draft, source: event.target.value }))}
-                    className="w-full rounded-soft border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-segment-create">
-                    Segment
-                  </label>
-                  <input
-                    id="lead-segment-create"
-                    value={leadForm.segment}
-                    onChange={(event) => setLeadForm((draft) => ({ ...draft, segment: event.target.value }))}
-                    className="w-full rounded-soft border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-status-create">
-                    Statut
-                  </label>
-                  <select
-                    id="lead-status-create"
-                    value={leadForm.status}
-                    onChange={(event) => setLeadForm((draft) => ({ ...draft, status: event.target.value as LeadStatus }))}
-                    className="w-full rounded-soft border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                  >
-                    {pipelineStatuses.map((status) => (
-                      <option key={status} value={status}>
-                        {status}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-owner-create">
-                    Propriétaire
-                  </label>
-                  <select
-                    id="lead-owner-create"
-                    value={leadForm.owner}
-                    onChange={(event) => setLeadForm((draft) => ({ ...draft, owner: event.target.value }))}
-                    className="w-full rounded-soft border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                  >
-                    {[leadForm.owner, ...owners]
-                      .filter((value, index, array) => array.indexOf(value) === index)
-                      .map((owner) => (
-                        <option key={owner} value={owner}>
-                          {owner}
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-source-create">
+                      Source
+                    </label>
+                    <input
+                      id="lead-source-create"
+                      value={leadForm.source}
+                      onChange={(event) => setLeadForm((draft) => ({ ...draft, source: event.target.value }))}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-segment-create">
+                      Segment
+                    </label>
+                    <input
+                      id="lead-segment-create"
+                      value={leadForm.segment}
+                      onChange={(event) => setLeadForm((draft) => ({ ...draft, segment: event.target.value }))}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-status-create">
+                      Statut
+                    </label>
+                    <select
+                      id="lead-status-create"
+                      value={leadForm.status}
+                      onChange={(event) => setLeadForm((draft) => ({ ...draft, status: event.target.value as LeadStatus }))}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    >
+                      {pipelineStatuses.map((status) => (
+                        <option key={status} value={status}>
+                          {status}
                         </option>
                       ))}
-                  </select>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-owner-create">
+                      Propriétaire
+                    </label>
+                    <select
+                      id="lead-owner-create"
+                      value={leadForm.owner}
+                      onChange={(event) => setLeadForm((draft) => ({ ...draft, owner: event.target.value }))}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    >
+                      {[leadForm.owner, ...owners]
+                        .filter((value, index, array) => array.indexOf(value) === index)
+                        .map((owner) => (
+                          <option key={owner} value={owner}>
+                            {owner}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-value">
+                      Valeur estimée
+                    </label>
+                    <input
+                      id="lead-value"
+                      type="number"
+                      min="0"
+                      step="0.5"
+                      value={leadForm.estimatedValue}
+                      onChange={(event) => setLeadForm((draft) => ({ ...draft, estimatedValue: event.target.value }))}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-company-select">
+                      Entreprise liée
+                    </label>
+                    <select
+                      id="lead-company-select"
+                      value={leadForm.companyId}
+                      onChange={(event) => setLeadForm((draft) => ({ ...draft, companyId: event.target.value }))}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    >
+                      <option value="">Aucune</option>
+                      {companies.map((company) => (
+                        <option key={company.id} value={company.id}>
+                          {company.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-support-type">
+                      Support
+                    </label>
+                    <select
+                      id="lead-support-type"
+                      value={leadForm.supportType}
+                      onChange={(event) => setLeadForm((draft) => ({ ...draft, supportType: event.target.value as SupportType }))}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    >
+                      {supportTypes.map((type) => (
+                        <option key={type} value={type}>
+                          {type}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label
+                      className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400"
+                      htmlFor="lead-support-detail"
+                    >
+                      Détail support
+                    </label>
+                    <input
+                      id="lead-support-detail"
+                      value={leadForm.supportDetail}
+                      onChange={(event) => setLeadForm((draft) => ({ ...draft, supportDetail: event.target.value }))}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    />
+                  </div>
+                  <div className="md:col-span-2 space-y-2">
+                    <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-tags">
+                      Tags
+                    </label>
+                    <input
+                      id="lead-tags"
+                      value={leadForm.tags}
+                      onChange={(event) => setLeadForm((draft) => ({ ...draft, tags: event.target.value }))}
+                      placeholder="Séparés par des virgules"
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    />
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-company-select">
-                    Entreprise liée
-                  </label>
-                  <select
-                    id="lead-company-select"
-                    value={leadForm.companyId}
-                    onChange={(event) => setLeadForm((draft) => ({ ...draft, companyId: event.target.value }))}
-                    className="w-full rounded-soft border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                  >
-                    <option value="">Aucune</option>
-                    {companies.map((company) => (
-                      <option key={company.id} value={company.id}>
-                        {company.name}
-                      </option>
-                    ))}
-                  </select>
+              </section>
+
+              {/* Section 3: Prochaine étape */}
+              <section className="rounded-2xl border border-slate-200/60 bg-gradient-to-br from-white via-slate-50/30 to-white p-6 shadow-[0_4px_20px_-2px_rgba(0,0,0,0.08)]">
+                <div className="mb-5 flex items-center gap-3">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/80 text-sm font-bold text-white shadow-md">
+                    3
+                  </div>
+                  <h3 className="text-base font-bold text-slate-900 tracking-tight">Prochaine étape</h3>
                 </div>
-                <div className="space-y-2">
-                  <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-next-date">
-                    Prochain step
-                  </label>
-                  <input
-                    id="lead-next-date"
-                    type="date"
-                    value={leadForm.nextStepDate}
-                    onChange={(event) => setLeadForm((draft) => ({ ...draft, nextStepDate: event.target.value }))}
-                    className="w-full rounded-soft border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                  />
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-next-date">
+                      Date de l'action
+                    </label>
+                    <input
+                      id="lead-next-date"
+                      type="date"
+                      value={leadForm.nextStepDate}
+                      onChange={(event) => setLeadForm((draft) => ({ ...draft, nextStepDate: event.target.value }))}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-next-note">
+                      Note de l'action
+                    </label>
+                    <input
+                      id="lead-next-note"
+                      value={leadForm.nextStepNote}
+                      onChange={(event) => setLeadForm((draft) => ({ ...draft, nextStepNote: event.target.value }))}
+                      placeholder="Ex: Relance téléphonique, envoi devis..."
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    />
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-next-note">
-                    Détail step
-                  </label>
-                  <input
-                    id="lead-next-note"
-                    value={leadForm.nextStepNote}
-                    onChange={(event) => setLeadForm((draft) => ({ ...draft, nextStepNote: event.target.value }))}
-                    className="w-full rounded-soft border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-value">
-                    Valeur estimée
-                  </label>
-                  <input
-                    id="lead-value"
-                    type="number"
-                    min="0"
-                    step="0.5"
-                    value={leadForm.estimatedValue}
-                    onChange={(event) => setLeadForm((draft) => ({ ...draft, estimatedValue: event.target.value }))}
-                    className="w-full rounded-soft border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                  />
-                </div>
-                <div className="md:col-span-2 space-y-2">
-                  <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-address">
-                    Adresse
-                  </label>
-                  <input
-                    id="lead-address"
-                    value={leadForm.address}
-                    onChange={(event) => setLeadForm((draft) => ({ ...draft, address: event.target.value }))}
-                    className="w-full rounded-soft border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-support-type">
-                    Support
-                  </label>
-                  <select
-                    id="lead-support-type"
-                    value={leadForm.supportType}
-                    onChange={(event) => setLeadForm((draft) => ({ ...draft, supportType: event.target.value as SupportType }))}
-                    className="w-full rounded-soft border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                  >
-                    {supportTypes.map((type) => (
-                      <option key={type} value={type}>
-                        {type}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <label
-                    className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400"
-                    htmlFor="lead-support-detail"
-                  >
-                    Détail support
-                  </label>
-                  <input
-                    id="lead-support-detail"
-                    value={leadForm.supportDetail}
-                    onChange={(event) => setLeadForm((draft) => ({ ...draft, supportDetail: event.target.value }))}
-                    className="w-full rounded-soft border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                  />
-                </div>
-                <div className="md:col-span-2 space-y-2">
-                  <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-tags">
-                    Tags
-                  </label>
-                  <input
-                    id="lead-tags"
-                    value={leadForm.tags}
-                    onChange={(event) => setLeadForm((draft) => ({ ...draft, tags: event.target.value }))}
-                    placeholder="Séparés par des virgules"
-                    className="w-full rounded-soft border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                  />
-                </div>
-              </div>
+              </section>
 
               <div className="flex justify-end">
                 <Button type="submit" size="sm">
@@ -1721,45 +2009,177 @@ const LeadPage = () => {
               </form>
 
               <div className="space-y-5 text-sm text-slate-700">
-                <section className="lead-surface space-y-3 rounded-soft border border-slate-200 bg-white/70 p-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400">
-                    Journal d’activité
-                  </p>
+                {/* Actions rapides */}
+                <section className="rounded-2xl border border-slate-200/60 bg-gradient-to-br from-white via-slate-50/50 to-white p-5 shadow-[0_4px_20px_-2px_rgba(0,0,0,0.08)]">
+                  <div className="mb-4 flex items-center gap-2">
+                    <div className="h-1 w-8 rounded-full bg-gradient-to-r from-primary to-primary/50" />
+                    <p className="text-sm font-bold text-slate-900 tracking-tight">
+                      Actions rapides
+                    </p>
+                  </div>
+                  <div className="grid gap-2.5">
+                    {hasPermission('lead.contact') && editingLead.email && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => handleContactLead(editingLead)}
+                        className="w-full justify-start gap-2"
+                      >
+                        <IconMail />
+                        Contacter par email
+                      </Button>
+                    )}
+                    {editingLead.phone && (
+                      <a
+                        href={`tel:${editingLead.phone}`}
+                        className="flex w-full items-center justify-start gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-50"
+                      >
+                        <IconPhone />
+                        Appeler
+                      </a>
+                    )}
+                    {hasPermission('lead.convert') && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => handleConvertToClient(editingLead)}
+                        className="w-full justify-start gap-2"
+                      >
+                        <IconConvert />
+                        Convertir en client
+                      </Button>
+                    )}
+                    {hasPermission('lead.edit') && (
+                      <>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => handleCreateEngagement(editingLead, 'devis')}
+                          className="w-full justify-start gap-2"
+                        >
+                          <IconDocument />
+                          Créer un devis
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => handleCreateEngagement(editingLead, 'service')}
+                          className="w-full justify-start gap-2"
+                        >
+                          <IconService />
+                          Planifier un service
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </section>
+
+                {/* Informations principales */}
+                <section className="rounded-2xl border border-slate-200/60 bg-gradient-to-br from-white to-slate-50/30 p-5 shadow-[0_4px_20px_-2px_rgba(0,0,0,0.08)]">
+                  <div className="mb-4 flex items-center gap-2">
+                    <div className="h-1 w-8 rounded-full bg-gradient-to-r from-primary to-primary/50" />
+                    <p className="text-sm font-bold text-slate-900 tracking-tight">
+                      Informations principales
+                    </p>
+                  </div>
+                  <div className="space-y-3 text-xs">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wide text-slate-400">Entreprise</p>
+                      <p className="font-medium text-slate-900">{editingLead.company || '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wide text-slate-400">Contact</p>
+                      <p className="font-medium text-slate-900">{editingLead.contact || '—'}</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wide text-slate-400">Téléphone</p>
+                        {editingLead.phone ? (
+                          <a href={`tel:${editingLead.phone}`} className="text-primary hover:underline">
+                            {editingLead.phone}
+                          </a>
+                        ) : (
+                          <p className="text-slate-400">—</p>
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wide text-slate-400">Email</p>
+                        {editingLead.email ? (
+                          <a href={`mailto:${editingLead.email}`} className="text-primary hover:underline">
+                            {editingLead.email}
+                          </a>
+                        ) : (
+                          <p className="text-slate-400">—</p>
+                        )}
+                      </div>
+                    </div>
+                    {editingLead.estimatedValue !== null && editingLead.estimatedValue !== undefined && (
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wide text-slate-400">Valeur estimée</p>
+                        <p className="font-bold text-lg text-primary">{formatCurrency(editingLead.estimatedValue)}</p>
+                      </div>
+                    )}
+                    {editingLead.nextStepDate && (
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wide text-slate-400">Prochaine action</p>
+                        <p className="font-medium text-slate-900">{formatShortDate(editingLead.nextStepDate)}</p>
+                        {editingLead.nextStepNote && (
+                          <p className="mt-1 text-slate-600">{editingLead.nextStepNote}</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </section>
+
+                {/* Journal d'activité */}
+                <section className="rounded-2xl border border-slate-200/60 bg-gradient-to-br from-white to-slate-50/30 p-5 shadow-[0_4px_20px_-2px_rgba(0,0,0,0.08)]">
+                  <div className="mb-4 flex items-center gap-2">
+                    <div className="h-1 w-8 rounded-full bg-gradient-to-r from-primary to-primary/50" />
+                    <p className="text-sm font-bold text-slate-900 tracking-tight">
+                      Journal des activités
+                    </p>
+                  </div>
                   {renderActivities(editingLead)}
                 </section>
-                <section className="lead-surface space-y-3 rounded-soft border border-slate-200 bg-white/70 p-4">
+
+                {/* Ajouter une activité */}
+                <section className="rounded-2xl border border-slate-200/60 bg-gradient-to-br from-white via-slate-50/50 to-white p-5 shadow-[0_4px_20px_-2px_rgba(0,0,0,0.08)]">
                   <form onSubmit={handleAddActivity} className="space-y-3">
                     <div className="flex gap-2 text-[11px] uppercase tracking-[0.2em] text-slate-500">
-                      <label className="flex items-center gap-1">
+                      <label className="flex items-center gap-1.5 cursor-pointer">
                         <input
                           type="radio"
                           name="activity-type"
                           value="note"
                           checked={noteType === 'note'}
                           onChange={() => setNoteType('note')}
+                          className="cursor-pointer"
                         />
+                        <IconNote />
                         Note
                       </label>
-                      <label className="flex items-center gap-1">
+                      <label className="flex items-center gap-1.5 cursor-pointer">
                         <input
                           type="radio"
                           name="activity-type"
                           value="call"
                           checked={noteType === 'call'}
                           onChange={() => setNoteType('call')}
+                          className="cursor-pointer"
                         />
+                        <IconCall />
                         Appel
                       </label>
                     </div>
                     <textarea
                       value={noteDraft}
                       onChange={(event) => setNoteDraft(event.target.value)}
-                      placeholder={noteType === 'call' ? 'Compte-rendu d’appel' : 'Note interne'}
-                      className="h-28 w-full rounded-soft border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                      placeholder={noteType === 'call' ? "Compte-rendu d'appel..." : "Note interne..."}
+                      className="h-28 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
                     />
                     <div className="flex justify-end">
                       <Button type="submit" size="sm" variant="primary" disabled={!noteDraft.trim()}>
-                        Ajouter
+                        Ajouter une activité
                       </Button>
                     </div>
                   </form>

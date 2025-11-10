@@ -16,6 +16,7 @@ export const Layout = ({ children }: LayoutProps) => {
     }
     return window.innerWidth <= 1366;
   });
+  const [isDesktopSidebarHidden, setIsDesktopSidebarHidden] = useState(false);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -61,9 +62,15 @@ export const Layout = ({ children }: LayoutProps) => {
           variant="desktop"
           onNavigate={() => setIsMobileSidebarOpen(false)}
           compact={isCompactViewport}
+          hidden={isDesktopSidebarHidden}
+          onToggleVisibility={() => setIsDesktopSidebarHidden((value) => !value)}
         />
         <div className="flex flex-1 flex-col">
-          <Topbar onMenuToggle={() => setIsMobileSidebarOpen(true)} />
+          <Topbar
+            onMenuToggle={() => setIsMobileSidebarOpen(true)}
+            isDesktopSidebarHidden={isDesktopSidebarHidden}
+            onToggleDesktopSidebar={() => setIsDesktopSidebarHidden((value) => !value)}
+          />
           <MobileQuickNav />
           <main className="flex-1 px-4 pb-12 pt-4 sm:px-5 md:px-6 lg:px-6 lg:pb-12 lg:pt-8">
             {children}

@@ -28,6 +28,8 @@ async def create_company(
 
         logger.info(f"Création d'une nouvelle entreprise: {company_data.name}")
 
+        # Les timestamps created_at/updated_at sont maintenant gérés par les defaults du modèle ORM
+        # Le status a un default "Actif" dans le modèle
         payload = {
             "id": new_id,
             "name": company_data.name,
@@ -51,9 +53,60 @@ async def create_company(
             "bic": company_data.bic,
             "planning_user": company_data.planningUser,
         }
-        db.add(CompanyORM(**payload))
+        
+        # Pour PostgreSQL, convertir l'ID string en UUID Python pour l'ORM
+        # Détecter PostgreSQL depuis l'engine de la session
+        import os
+        from app.db.session import engine
+        DB_DIALECT = os.getenv("DB_DIALECT", "").lower()
+        if not DB_DIALECT:
+            # Détecter depuis l'URL de l'engine
+            engine_url = str(engine.url)
+            if "postgresql" in engine_url.lower():
+                DB_DIALECT = "postgresql"
+            else:
+                DATABASE_URL = os.getenv("DATABASE_URL", "")
+                if DATABASE_URL and "postgresql" in DATABASE_URL.lower():
+                    DB_DIALECT = "postgresql"
+        if DB_DIALECT == "postgresql" and "id" in payload:
+            try:
+                payload["id"] = uuid.UUID(payload["id"])
+            except (ValueError, AttributeError, TypeError):
+                pass  # Si conversion impossible, garder tel quel
+        
+        company_orm = CompanyORM(**payload)
+        db.add(company_orm)
+        db.flush()
         logger.info(f"✅ Entreprise créée avec succès: {new_id}")
-        return ERPResponse(success=True, data=payload)
+        # Construire la réponse avec les données de l'ORM (incluant les timestamps)
+        # Convertir l'ID UUID en string pour la réponse JSON
+        company_id_str = str(company_orm.id) if company_orm.id else new_id
+        response_data = {
+            "id": company_id_str,
+            "name": company_orm.name,
+            "email": company_orm.email,
+            "phone": company_orm.phone,
+            "address": company_orm.address,
+            "postal_code": company_orm.postal_code,
+            "city": company_orm.city,
+            "siret": company_orm.siret,
+            "vat_number": company_orm.vat_number,
+            "legal_notes": company_orm.legal_notes,
+            "vat_enabled": company_orm.vat_enabled,
+            "website": company_orm.website,
+            "is_default": company_orm.is_default,
+            "document_header_title": company_orm.document_header_title,
+            "logo_url": company_orm.logo_url,
+            "invoice_logo_url": company_orm.invoice_logo_url,
+            "bank_name": company_orm.bank_name,
+            "bank_address": company_orm.bank_address,
+            "iban": company_orm.iban,
+            "bic": company_orm.bic,
+            "planning_user": company_orm.planning_user,
+            "created_at": company_orm.created_at.isoformat() if company_orm.created_at else None,
+            "updated_at": company_orm.updated_at.isoformat() if company_orm.updated_at else None,
+        }
+        return ERPResponse(success=True, data=response_data)
             
     except ValidationError as ve:
         logger.error(f"Erreur de validation: {ve}")
@@ -61,9 +114,11 @@ async def create_company(
     except IntegrityError as ie:
         logger.error(f"Conflit d'unicité (name/email?): {ie}")
         raise HTTPException(status_code=409, detail="Conflit: données déjà existantes (name/email)")
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Erreur lors de la création de l'entreprise: {e}")
-        return ERPResponse(success=False, error=f"Erreur serveur: {str(e)}")
+        logger.error(f"Erreur lors de la création de l'entreprise: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erreur serveur: {str(e)}")
 
 @router.get("/", response_model=ERPListResponse)
 async def get_all_companies(

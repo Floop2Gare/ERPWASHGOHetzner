@@ -37,6 +37,7 @@ services = _safe_import("app.api.services", "router")
 appointments = _safe_import("app.api.appointments", "router")
 companies = _safe_import("app.api.companies", "router")
 leads = _safe_import("app.api.leads", "router")
+users = _safe_import("app.api.users", "router")
 debug_google = _safe_import("app.api.debug_google", "router")
 
 app = FastAPI(
@@ -87,6 +88,7 @@ app.include_router(services.router, prefix="/services", tags=["services"])
 app.include_router(appointments.router, prefix="/appointments", tags=["appointments"])
 app.include_router(companies.router, prefix="/companies", tags=["companies"])
 app.include_router(leads.router, prefix="/leads", tags=["leads"])
+app.include_router(users.router, prefix="/users", tags=["users"])
 if os.getenv('ENABLE_DEBUG_ROUTES', 'false').lower() == 'true':
     app.include_router(debug_google.router, prefix="/debug", tags=["debug"])
 

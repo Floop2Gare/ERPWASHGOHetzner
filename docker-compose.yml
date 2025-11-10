@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+  # Base de données PostgreSQL avec persistance
+  postgres:
+    image: postgres:16
+    container_name: erp_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-erp_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_secure_password}
+      POSTGRES_DB: ${POSTGRES_DB:-erp_washgo}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      # Volume persistant pour les données PostgreSQL
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-erp_user}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - erp_network
+
+  # Backend FastAPI
+  backend:
+    build:
+      context: ./BACK-END-ERP
+      dockerfile: Dockerfile
+    container_name: erp_backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-erp_user}:${POSTGRES_PASSWORD:-change_me_secure_password}@postgres:5432/${POSTGRES_DB:-erp_washgo}
+      DB_DIALECT: postgresql
+      ENABLE_DEBUG_ROUTES: ${ENABLE_DEBUG_ROUTES:-false}
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      # Volume pour les logs (optionnel)
+      - backend_logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - erp_network
+    command: >
+      sh -c "
+        echo 'Attente de la base de données...' &&
+        sleep 5 &&
+        alembic upgrade head &&
+        uvicorn app.main:app --host 0.0.0.0 --port 8000
+      "
+
+  # Frontend (optionnel - peut être servi via Nginx sur le serveur)
+  # Décommentez si vous voulez servir le frontend via Docker
+  # frontend:
+  #   build:
+  #     context: ./FRONT-END-ERP/FRONT-END-ERP
+  #     dockerfile: Dockerfile
+  #   container_name: erp_frontend
+  #   ports:
+  #     - "${FRONTEND_PORT:-5173}:80"
+  #   depends_on:
+  #     - backend
+  #   restart: unless-stopped
+  #   networks:
+  #     - erp_network
+
+volumes:
+  # Volume persistant pour PostgreSQL - les données seront sauvegardées ici
+  postgres_data:
+    driver: local
+  # Volume pour les logs backend
+  backend_logs:
+    driver: local
+
+networks:
+  erp_network:
+    driver: bridge
+

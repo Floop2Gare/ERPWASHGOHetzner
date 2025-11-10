@@ -46,7 +46,7 @@ def upgrade() -> None:
         sa.CheckConstraint('interest_level >= 0 AND interest_level <= 100', name='ck_leads_interest_level_0_100'),
         # Optionnel: liste fermée pour stage et status
         sa.CheckConstraint("stage IS NULL OR stage IN ('new','contacted','proposal','negotiation','won','lost')", name='ck_leads_stage_values'),
-        sa.CheckConstraint("status IS NULL OR status IN ('active','archived','converti')", name='ck_leads_status_values'),
+        sa.CheckConstraint("status IS NULL OR status IN ('Nouveau','En cours','Converti','Perdu')", name='ck_leads_status_values'),
     )
 
     # uniques insensibles à la casse (NULL autorisé)

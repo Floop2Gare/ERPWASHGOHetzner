@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy import String, Text, DateTime, Boolean, Numeric, Integer, ForeignKey, JSON
+from sqlalchemy import String, Text, DateTime, Boolean, Numeric, Integer, ForeignKey, JSON, func
 try:
     from sqlalchemy.dialects.postgresql import ARRAY as PG_ARRAY, UUID as PG_UUID, JSONB as PG_JSONB
 except Exception:  # pragma: no cover - fallback when PG dialect not available
@@ -11,7 +11,14 @@ except Exception:  # pragma: no cover - fallback when PG dialect not available
     PG_JSONB = None
 
 # Définir des types compatibles selon le dialecte
-DB_DIALECT = os.getenv("DB_DIALECT", "postgresql").lower()
+# Détection automatique depuis DATABASE_URL si DB_DIALECT n'est pas défini
+DB_DIALECT = os.getenv("DB_DIALECT", "").lower()
+if not DB_DIALECT:
+    DATABASE_URL = os.getenv("DATABASE_URL", "")
+    if DATABASE_URL and "postgresql" in DATABASE_URL.lower():
+        DB_DIALECT = "postgresql"
+    else:
+        DB_DIALECT = "sqlite"
 
 if DB_DIALECT == "postgresql" and PG_ARRAY and PG_UUID and PG_JSONB:
     TYPE_UUID = PG_UUID
@@ -25,6 +32,14 @@ else:
     def TYPE_ARRAY(_inner_type):
         return JSON
 from datetime import datetime
+
+
+# Helper pour générer les defaults de datetime selon le dialecte
+# SQLite: utilise default=datetime.now (callable)
+# Postgres: utilise server_default=func.now() (pas de default Python)
+def _datetime_default():
+    """Callable pour datetime.now() utilisé comme default pour SQLite."""
+    return datetime.now()
 
 
 class Base(DeclarativeBase):
@@ -49,8 +64,17 @@ class ClientORM(Base):
     tags: Mapped[list[str]] = mapped_column(TYPE_ARRAY(Text), default=list)
     last_service: Mapped[str | None] = mapped_column(String(50), nullable=True)
     contacts: Mapped[list[dict]] = mapped_column(TYPE_JSON, default=list)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True) if DB_DIALECT == "postgresql" else DateTime(),
+        server_default=func.now() if DB_DIALECT == "postgresql" else None,
+        default=_datetime_default if DB_DIALECT != "postgresql" else None
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True) if DB_DIALECT == "postgresql" else DateTime(),
+        server_default=func.now() if DB_DIALECT == "postgresql" else None,
+        onupdate=func.now() if DB_DIALECT == "postgresql" else (_datetime_default if DB_DIALECT != "postgresql" else None),
+        default=_datetime_default if DB_DIALECT != "postgresql" else None
+    )
 
 
 class ServiceORM(Base):
@@ -64,8 +88,17 @@ class ServiceORM(Base):
     base_duration: Mapped[int] = mapped_column(Integer, default=0)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     options: Mapped[list[dict]] = mapped_column(TYPE_JSON, default=list)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True) if DB_DIALECT == "postgresql" else DateTime(),
+        server_default=func.now() if DB_DIALECT == "postgresql" else None,
+        default=_datetime_default if DB_DIALECT != "postgresql" else None
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True) if DB_DIALECT == "postgresql" else DateTime(),
+        server_default=func.now() if DB_DIALECT == "postgresql" else None,
+        onupdate=func.now() if DB_DIALECT == "postgresql" else (_datetime_default if DB_DIALECT != "postgresql" else None),
+        default=_datetime_default if DB_DIALECT != "postgresql" else None
+    )
 
 
 class AppointmentORM(Base):
@@ -78,8 +111,17 @@ class AppointmentORM(Base):
     end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[str | None] = mapped_column(String(50), nullable=True)
     notes: Mapped[dict] = mapped_column(TYPE_JSON, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True) if DB_DIALECT == "postgresql" else DateTime(),
+        server_default=func.now() if DB_DIALECT == "postgresql" else None,
+        default=_datetime_default if DB_DIALECT != "postgresql" else None
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True) if DB_DIALECT == "postgresql" else DateTime(),
+        server_default=func.now() if DB_DIALECT == "postgresql" else None,
+        onupdate=func.now() if DB_DIALECT == "postgresql" else (_datetime_default if DB_DIALECT != "postgresql" else None),
+        default=_datetime_default if DB_DIALECT != "postgresql" else None
+    )
 
 class CompanyORM(Base):
     __tablename__ = "companies"
@@ -91,7 +133,7 @@ class CompanyORM(Base):
     city: Mapped[str | None] = mapped_column(String(100), nullable=True)
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    status: Mapped[str] = mapped_column(String(20))
+    status: Mapped[str] = mapped_column(String(20), default="Actif")
     notes: Mapped[dict] = mapped_column(TYPE_JSON, default=dict)
     tags: Mapped[list[str]] = mapped_column(TYPE_ARRAY(String), default=list)
     postal_code: Mapped[str | None] = mapped_column(String(10), nullable=True)
@@ -109,8 +151,17 @@ class CompanyORM(Base):
     bic: Mapped[str | None] = mapped_column(String(11), nullable=True)
     planning_user: Mapped[str | None] = mapped_column(String(100), nullable=True)
     company_id: Mapped[str | None] = mapped_column(TYPE_UUID(as_uuid=False) if DB_DIALECT == "postgresql" else TYPE_UUID(), ForeignKey("clients.id", ondelete="SET NULL"), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True) if DB_DIALECT == "postgresql" else DateTime(),
+        server_default=func.now() if DB_DIALECT == "postgresql" else None,
+        default=_datetime_default if DB_DIALECT != "postgresql" else None
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True) if DB_DIALECT == "postgresql" else DateTime(),
+        server_default=func.now() if DB_DIALECT == "postgresql" else None,
+        onupdate=func.now() if DB_DIALECT == "postgresql" else (_datetime_default if DB_DIALECT != "postgresql" else None),
+        default=_datetime_default if DB_DIALECT != "postgresql" else None
+    )
 
 class LeadORM(Base):
     __tablename__ = "leads"
@@ -134,6 +185,39 @@ class LeadORM(Base):
     activities: Mapped[list[dict]] = mapped_column(TYPE_JSON, default=list)
     client_id: Mapped[str | None] = mapped_column(TYPE_UUID(as_uuid=False) if DB_DIALECT == "postgresql" else TYPE_UUID(), ForeignKey("clients.id", ondelete="SET NULL"), nullable=True)
     company_id: Mapped[str | None] = mapped_column(TYPE_UUID(as_uuid=False) if DB_DIALECT == "postgresql" else TYPE_UUID(), ForeignKey("companies.id", ondelete="SET NULL"), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True) if DB_DIALECT == "postgresql" else DateTime(),
+        server_default=func.now() if DB_DIALECT == "postgresql" else None,
+        default=_datetime_default if DB_DIALECT != "postgresql" else None
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True) if DB_DIALECT == "postgresql" else DateTime(),
+        server_default=func.now() if DB_DIALECT == "postgresql" else None,
+        onupdate=func.now() if DB_DIALECT == "postgresql" else (_datetime_default if DB_DIALECT != "postgresql" else None),
+        default=_datetime_default if DB_DIALECT != "postgresql" else None
+    )
+
+
+class UserORM(Base):
+    __tablename__ = "auth_users"
+
+    id: Mapped[str] = mapped_column(TYPE_UUID(as_uuid=False) if DB_DIALECT == "postgresql" else TYPE_UUID(), primary_key=True)
+    username: Mapped[str] = mapped_column(String(100), unique=True)
+    full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    password_hash: Mapped[str] = mapped_column(String(255))
+    role: Mapped[str] = mapped_column(String(50))  # superAdmin, agent, manager, etc.
+    pages: Mapped[list[str]] = mapped_column(TYPE_ARRAY(String), default=list)  # Pages accessibles
+    permissions: Mapped[list[str]] = mapped_column(TYPE_ARRAY(String), default=list)  # Permissions
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True) if DB_DIALECT == "postgresql" else DateTime(),
+        server_default=func.now() if DB_DIALECT == "postgresql" else None,
+        default=_datetime_default if DB_DIALECT != "postgresql" else None
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True) if DB_DIALECT == "postgresql" else DateTime(),
+        server_default=func.now() if DB_DIALECT == "postgresql" else None,
+        onupdate=func.now() if DB_DIALECT == "postgresql" else (_datetime_default if DB_DIALECT != "postgresql" else None),
+        default=_datetime_default if DB_DIALECT != "postgresql" else None
+    )
 

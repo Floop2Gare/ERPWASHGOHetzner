@@ -6,14 +6,18 @@ import {
   useRef,
   useState,
 } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import clsx from 'clsx';
 
 import { useAppData } from '../store/useAppData';
 import { BRAND_NAME } from '../lib/branding';
 import { formatCurrency, formatDate } from '../lib/format';
+import MenuRoundedIcon from '@mui/icons-material/MenuRounded';
 
 interface TopbarProps {
   onMenuToggle: () => void;
+  isDesktopSidebarHidden: boolean;
+  onToggleDesktopSidebar: () => void;
 }
 
 const IconSun = () => (
@@ -40,10 +44,11 @@ const IconMoon = () => (
   </svg>
 );
 
-export const Topbar = ({ onMenuToggle }: TopbarProps) => {
+export const Topbar = ({ onMenuToggle, isDesktopSidebarHidden, onToggleDesktopSidebar }: TopbarProps) => {
   const [query, setQuery] = useState('');
   const [isFocused, setIsFocused] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [isElevated, setIsElevated] = useState(false);
   const blurTimeoutRef = useRef<number | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const navigate = useNavigate();
@@ -286,16 +291,55 @@ export const Topbar = ({ onMenuToggle }: TopbarProps) => {
     navigate(path);
   };
 
-  const APP_VERSION: string = (import.meta as any).env?.VITE_APP_VERSION || '1.0';
+  const APP_VERSION: string = (import.meta as any).env?.VITE_APP_VERSION || '1.1';
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const handleScroll = () => {
+      setIsElevated(window.scrollY > 16);
+    };
+
+    handleScroll();
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+    };
+  }, []);
+
+  const topbarDesktopCols = isDesktopSidebarHidden
+    ? 'lg:grid-cols-[auto_minmax(0,1fr)_auto]'
+    : 'lg:grid-cols-[minmax(0,1fr)_auto]';
 
   return (
-    <header className="sticky top-0 z-30 border-b border-border bg-surface">
-      <div className="grid w-full gap-3 px-4 py-3 sm:px-6 lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:items-center lg:gap-6">
-        <div className="flex items-center gap-3">
+    <header className="topbar-shell" data-elevated={isElevated ? 'true' : undefined}>
+      <div
+        className={`topbar grid w-full gap-3 px-4 py-3 sm:px-6 lg:items-center lg:gap-6 ${topbarDesktopCols}`}
+      >
+        <div className={clsx('flex items-center gap-3', !isDesktopSidebarHidden && 'lg:hidden')}>
+          {isDesktopSidebarHidden && (
+            <button
+              type="button"
+              onClick={onToggleDesktopSidebar}
+              className="topbar__icon-button hidden h-10 w-10 items-center justify-center rounded-xl text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 lg:inline-flex"
+              aria-label="Afficher la navigation"
+            >
+              <MenuRoundedIcon fontSize="small" />
+            </button>
+          )}
+          <Link to="/" className="topbar__brand">
+            <span className="topbar__brand-mark">WF</span>
+            <span className="topbar__brand-text">
+              <span>Wash&Go</span>
+              <small>App</small>
+            </span>
+          </Link>
           <button
             type="button"
             onClick={onMenuToggle}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-border text-muted transition-colors hover:border-primary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 lg:hidden"
+            className="topbar__icon-button inline-flex h-10 w-10 items-center justify-center rounded-xl text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 lg:hidden"
             aria-label="Ouvrir le menu"
           >
             <span className="sr-only">Ouvrir le menu</span>
@@ -304,7 +348,7 @@ export const Topbar = ({ onMenuToggle }: TopbarProps) => {
             </svg>
           </button>
         </div>
-        <form onSubmit={handleSubmit} className="order-3 w-full lg:order-none lg:mx-auto lg:max-w-2xl">
+        <form onSubmit={handleSubmit} className="topbar__search order-3 w-full lg:order-none lg:mx-auto lg:max-w-2xl">
           <label htmlFor="global-search" className="sr-only">
             Rechercher
           </label>
@@ -317,7 +361,7 @@ export const Topbar = ({ onMenuToggle }: TopbarProps) => {
               onFocus={() => setIsFocused(true)}
               onBlur={handleBlur}
               placeholder="Rechercher clients, prestations ou documents"
-              className="w-full rounded-xl border border-border bg-surface px-4 py-2.5 text-sm text-text placeholder:text-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+              className="w-full rounded-xl px-4 py-2.5 text-sm text-text placeholder:text-muted focus:outline-none"
               autoComplete="off"
             />
             {isFocused && trimmedQuery && (
@@ -360,18 +404,18 @@ export const Topbar = ({ onMenuToggle }: TopbarProps) => {
             )}
           </div>
         </form>
-        <div className="flex items-center justify-end gap-3">
-          <span className="hidden rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] text-muted sm:inline-block">
+        <div className="topbar__actions flex items-center justify-end gap-3">
+          <span className="topbar__version hidden px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] sm:inline-block">
             v {APP_VERSION}
           </span>
-          <div className="hidden text-right text-[11px] uppercase tracking-[0.28em] text-muted lg:block">
-            <p className="text-sm font-semibold text-text">{displayName}</p>
-            <p className="text-[10px] text-muted">{displayRole}</p>
+          <div className="topbar__identity hidden text-right text-[11px] uppercase tracking-[0.28em] lg:block">
+            <p className="topbar__identity-name text-sm font-semibold">{displayName}</p>
+            <p className="topbar__identity-role text-[10px]">{displayRole}</p>
           </div>
           <button
             type="button"
             onClick={toggleTheme}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-border text-muted transition-colors hover:border-primary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+            className="topbar__icon-button inline-flex h-10 w-10 items-center justify-center rounded-xl text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
             aria-label={theme === 'dark' ? 'Activer le mode clair' : 'Activer le mode sombre'}
           >
             {theme === 'dark' ? <IconSun /> : <IconMoon />}
@@ -380,7 +424,7 @@ export const Topbar = ({ onMenuToggle }: TopbarProps) => {
             <button
               type="button"
               onClick={() => setIsUserMenuOpen((open) => !open)}
-              className="flex h-11 w-11 items-center justify-center rounded-full border border-border bg-surface text-sm font-semibold text-text transition-colors hover:border-primary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+              className="topbar__avatar-button flex h-11 w-11 items-center justify-center rounded-full text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
               aria-haspopup="menu"
               aria-expanded={isUserMenuOpen}
               aria-label={isUserMenuOpen ? 'Fermer le menu utilisateur' : 'Ouvrir le menu utilisateur'}

@@ -15,7 +15,6 @@ import UsersAdminPage from './pages/UsersAdminPage';
 import { useAppData } from './store/useAppData';
 import { SIDEBAR_NAVIGATION_LINKS } from './layout/navigationLinks';
 import type { AppPageKey } from './lib/rbac';
-import MobileTestPage from './pages/MobileTestPage';
 import { useBackendSync } from './hooks/useBackendSync';
 
 const detectMobileUserAgent = (userAgent: string) =>
@@ -122,10 +121,6 @@ const App = () => {
       window.removeEventListener('orientationchange', evaluate);
     };
   }, []);
-
-  if (renderMobileUI) {
-    return <MobileTestPage />;
-  }
 
   return (
     <Routes>

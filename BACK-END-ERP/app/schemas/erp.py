@@ -241,3 +241,39 @@ class ERPListResponse(BaseModel):
     data: Optional[List[Dict[str, Any]]] = None
     error: Optional[str] = None
     count: Optional[int] = None
+
+
+# Schémas pour les utilisateurs
+class UserCreate(BaseModel):
+    username: str
+    password: str
+    full_name: Optional[str] = None
+    role: str = "agent"  # superAdmin, agent, manager, etc.
+    pages: List[str] = ["*"]  # Pages accessibles
+    permissions: List[str] = ["*"]  # Permissions
+    active: bool = True
+
+
+class UserUpdate(BaseModel):
+    username: Optional[str] = None
+    full_name: Optional[str] = None
+    role: Optional[str] = None
+    pages: Optional[List[str]] = None
+    permissions: Optional[List[str]] = None
+    active: Optional[bool] = None
+
+
+class UserPasswordUpdate(BaseModel):
+    password: str
+
+
+class UserResponse(BaseModel):
+    id: str
+    username: str
+    full_name: Optional[str] = None
+    role: str
+    pages: List[str]
+    permissions: List[str]
+    active: bool
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None

@@ -19,6 +19,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 def _to_db_dict(client_data: ClientCreate, client_id: str) -> dict:
+    # Les timestamps created_at/updated_at sont maintenant gérés par les defaults du modèle ORM
     return {
         "id": client_id,
         "type": client_data.type.value,
@@ -49,10 +50,54 @@ async def create_client(
         
         client_id = client_data.id or str(uuid.uuid4())
         payload = _to_db_dict(client_data, client_id)
+        
+        # Pour PostgreSQL, convertir l'ID string en UUID Python pour l'ORM
+        # Détecter PostgreSQL depuis l'engine de la session
+        import os
+        from app.db.session import engine
+        DB_DIALECT = os.getenv("DB_DIALECT", "").lower()
+        if not DB_DIALECT:
+            # Détecter depuis l'URL de l'engine
+            engine_url = str(engine.url)
+            if "postgresql" in engine_url.lower():
+                DB_DIALECT = "postgresql"
+            else:
+                DATABASE_URL = os.getenv("DATABASE_URL", "")
+                if DATABASE_URL and "postgresql" in DATABASE_URL.lower():
+                    DB_DIALECT = "postgresql"
+        if DB_DIALECT == "postgresql" and "id" in payload:
+            try:
+                payload["id"] = uuid.UUID(payload["id"])
+            except (ValueError, AttributeError, TypeError):
+                pass  # Si conversion impossible, garder tel quel
 
-        db.add(ClientORM(**payload))
+        client_orm = ClientORM(**payload)
+        db.add(client_orm)
+        db.flush()  # Pour obtenir les timestamps générés par les defaults
         logger.info(f"✅ Client créé avec succès: {client_id}")
-        return ERPResponse(success=True, data=payload)
+        # Construire la réponse avec les données de l'ORM (incluant les timestamps)
+        # Convertir l'ID UUID en string pour la réponse JSON
+        client_id_str = str(client_orm.id) if client_orm.id else client_id
+        response_data = {
+            "id": client_id_str,
+            "type": client_orm.type,
+            "name": client_orm.name,
+            "company_name": client_orm.company_name,
+            "first_name": client_orm.first_name,
+            "last_name": client_orm.last_name,
+            "siret": client_orm.siret,
+            "email": client_orm.email,
+            "phone": client_orm.phone,
+            "address": client_orm.address,
+            "city": client_orm.city,
+            "status": client_orm.status,
+            "tags": client_orm.tags or [],
+            "last_service": client_orm.last_service,
+            "contacts": client_orm.contacts or [],
+            "created_at": client_orm.created_at.isoformat() if client_orm.created_at else None,
+            "updated_at": client_orm.updated_at.isoformat() if client_orm.updated_at else None,
+        }
+        return ERPResponse(success=True, data=response_data)
             
     except ValidationError as ve:
         logger.error(f"Erreur de validation: {ve}")
@@ -60,9 +105,11 @@ async def create_client(
     except IntegrityError as ie:
         logger.error(f"Conflit d'unicité (email?): {ie}")
         raise HTTPException(status_code=409, detail="Conflit: données déjà existantes (email)")
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Erreur lors de la création du client: {e}")
-        return ERPResponse(success=False, error=f"Erreur serveur: {str(e)}")
+        logger.error(f"Erreur lors de la création du client: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erreur serveur: {str(e)}")
 
 @router.get("/", response_model=ERPListResponse)
 @router.get("", response_model=ERPListResponse)

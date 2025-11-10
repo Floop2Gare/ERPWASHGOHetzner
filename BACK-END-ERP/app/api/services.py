@@ -30,6 +30,7 @@ async def create_service(
         # Générer un ID unique côté serveur si absent
         new_id = service_data.id or str(uuid.uuid4())
 
+        # Les timestamps created_at/updated_at sont maintenant gérés par les defaults du modèle ORM
         payload = {
             "id": new_id,
             "name": service_data.name,
@@ -38,10 +39,45 @@ async def create_service(
             "active": service_data.active,
             "options": [option.model_dump() for option in service_data.options],
         }
+        
+        # Pour PostgreSQL, convertir l'ID string en UUID Python pour l'ORM
+        # Détecter PostgreSQL depuis l'engine de la session
+        import os
+        from app.db.session import engine
+        DB_DIALECT = os.getenv("DB_DIALECT", "").lower()
+        if not DB_DIALECT:
+            # Détecter depuis l'URL de l'engine
+            engine_url = str(engine.url)
+            if "postgresql" in engine_url.lower():
+                DB_DIALECT = "postgresql"
+            else:
+                DATABASE_URL = os.getenv("DATABASE_URL", "")
+                if DATABASE_URL and "postgresql" in DATABASE_URL.lower():
+                    DB_DIALECT = "postgresql"
+        if DB_DIALECT == "postgresql" and "id" in payload:
+            try:
+                payload["id"] = uuid.UUID(payload["id"])
+            except (ValueError, AttributeError, TypeError):
+                pass  # Si conversion impossible, garder tel quel
 
-        db.add(ServiceORM(**payload))
+        service_orm = ServiceORM(**payload)
+        db.add(service_orm)
+        db.flush()
         logger.info(f"✅ Service créé avec succès: {new_id}")
-        return ERPResponse(success=True, data=payload)
+        # Construire la réponse avec les données de l'ORM (incluant les timestamps)
+        # Convertir l'ID UUID en string pour la réponse JSON
+        service_id_str = str(service_orm.id) if service_orm.id else new_id
+        response_data = {
+            "id": service_id_str,
+            "name": service_orm.name,
+            "description": service_orm.description,
+            "category": service_orm.category,
+            "active": service_orm.active,
+            "options": service_orm.options or [],
+            "created_at": service_orm.created_at.isoformat() if service_orm.created_at else None,
+            "updated_at": service_orm.updated_at.isoformat() if service_orm.updated_at else None,
+        }
+        return ERPResponse(success=True, data=response_data)
             
     except ValidationError as ve:
         logger.error(f"Erreur de validation: {ve}")

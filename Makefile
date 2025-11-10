@@ -1,7 +1,7 @@
 # Makefile pour ERP Wash&Go - Validation Locale
 # Usage: make <target>
 
-.PHONY: help be-env-sqlite be-env-pg be-install be-run be-migrate fe-install fe-run local-pg-up local-pg-down test-api test-health test-clients test-companies test-services clean-sqlite
+.PHONY: help be-env-sqlite be-env-pg be-install be-run be-migrate fe-install fe-run local-pg-up local-pg-down test-api test-health test-clients test-companies test-services test-all clean-sqlite
 
 # Variables
 BACKEND_DIR = BACK-END-ERP
@@ -29,6 +29,7 @@ help:
 	@echo "  make test-clients      - Tester /clients"
 	@echo "  make test-companies    - Tester /companies"
 	@echo "  make test-services     - Tester /services"
+	@echo "  make test-all          - Tests complets de toutes les fonctionnalités"
 	@echo "  make clean-sqlite      - Supprimer la base SQLite de test"
 
 # Configuration backend SQLite
@@ -71,17 +72,24 @@ fe-run:
 	@echo "Démarrage du frontend sur http://localhost:5173..."
 	@cd $(FRONTEND_DIR) && $(NPM) run dev
 
-# PostgreSQL Docker
+# PostgreSQL Docker (avec volume persistant)
 local-pg-up:
-	@echo "Démarrage de PostgreSQL via Docker..."
-	@docker run --name erp_pg_local -e POSTGRES_PASSWORD=postgres -e POSTGRES_USER=postgres -e POSTGRES_DB=postgres -p 5433:5432 -d postgres:16 || echo "⚠️  Docker non disponible ou conteneur déjà existant"
-	@echo "✅ PostgreSQL démarré sur le port 5433"
+	@echo "Démarrage de PostgreSQL via Docker avec persistance..."
+	@docker run --name erp_pg_local \
+		-e POSTGRES_PASSWORD=postgres \
+		-e POSTGRES_USER=postgres \
+		-e POSTGRES_DB=postgres \
+		-p 5433:5432 \
+		-v erp_pg_local_data:/var/lib/postgresql/data \
+		-d postgres:16 \
+		|| echo "⚠️  Docker non disponible ou conteneur déjà existant"
+	@echo "✅ PostgreSQL démarré sur le port 5433 avec volume persistant"
 
 local-pg-down:
 	@echo "Arrêt de PostgreSQL Docker..."
 	@docker stop erp_pg_local || echo "⚠️  Conteneur non trouvé"
 	@docker rm erp_pg_local || echo "⚠️  Conteneur non trouvé"
-	@echo "✅ PostgreSQL arrêté"
+	@echo "✅ PostgreSQL arrêté (les données sont conservées dans le volume)"
 
 # Tests API
 test-api: test-health test-clients test-companies test-services
@@ -123,9 +131,22 @@ test-services:
 	@echo "=== Test GET /services/ ==="
 	@curl -s -i http://127.0.0.1:8000/services/ || echo "❌ Erreur"
 
+# Tests complets de toutes les fonctionnalités
+test-all:
+	@echo "Tests complets de toutes les fonctionnalités..."
+	@if [ -f "scripts/test_all_functionalities.sh" ]; then \
+		chmod +x scripts/test_all_functionalities.sh && \
+		./scripts/test_all_functionalities.sh; \
+	elif [ -f "scripts/test_all_functionalities.ps1" ]; then \
+		powershell -ExecutionPolicy Bypass -File scripts/test_all_functionalities.ps1; \
+	else \
+		echo "❌ Script de test non trouvé"; \
+	fi
+
 # Nettoyage
 clean-sqlite:
 	@echo "Suppression de la base SQLite de test..."
 	@rm -f $(BACKEND_DIR)/test_erp.db || del /F $(BACKEND_DIR)\test_erp.db || echo "⚠️  Fichier non trouvé"
 	@echo "✅ Base SQLite supprimée"
+
 

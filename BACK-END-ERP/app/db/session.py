@@ -33,13 +33,13 @@ def get_db() -> Generator:
     except IntegrityError as ie:
         db.rollback()
         # Conflit d'unicité (ex: email unique)
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Conflit d'intégrité") from ie
-    except SQLAlchemyError:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Conflit d'intégrité: {str(ie)}") from ie
+    except SQLAlchemyError as sae:
         db.rollback()
-        raise
-    except Exception:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erreur base de données: {str(sae)}") from sae
+    except Exception as e:
         db.rollback()
-        raise
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erreur serveur: {str(e)}") from e
     finally:
         db.close()
 

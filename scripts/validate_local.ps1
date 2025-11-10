@@ -73,11 +73,18 @@ print('[OK] Schema SQLite cree')
 } elseif ($DbType -eq "postgres") {
     Write-Host "[*] Configuration PostgreSQL..."
     Set-Location $BackendDir
+    # Supprimer l'ancien .env pour éviter les conflits
+    Remove-Item .env -ErrorAction SilentlyContinue
     @"
+DB_DIALECT=postgresql
 DATABASE_URL=postgresql+psycopg://postgres:postgres@127.0.0.1:5433/postgres
 ENABLE_DEBUG_ROUTES=false
 "@ | Out-File -FilePath .env -Encoding utf8 -NoNewline
     Write-Host "[OK] Configuration PostgreSQL creee"
+    
+    # Définir les variables d'environnement pour ce processus
+    $env:DB_DIALECT = "postgresql"
+    $env:DATABASE_URL = "postgresql+psycopg://postgres:postgres@127.0.0.1:5433/postgres"
     
     # Migrations
     Write-Host "[*] Application des migrations Alembic..."
@@ -94,9 +101,29 @@ Start-Sleep -Seconds 2
 # Démarrer le backend
 Write-Host "[*] Demarrage du backend..."
 Set-Location $BackendDir
-$uvicorn = Join-Path $BackendDir "venv\Scripts\uvicorn.exe"
-Start-Process -FilePath $uvicorn -ArgumentList "app.main:app","--host","127.0.0.1","--port","8000","--reload" -WindowStyle Hidden
-Start-Sleep -Seconds 8
+# S'assurer que les variables d'environnement sont définies pour PostgreSQL
+if ($DbType -eq "postgres") {
+    $env:DB_DIALECT = "postgresql"
+    $env:DATABASE_URL = "postgresql+psycopg://postgres:postgres@127.0.0.1:5433/postgres"
+    # Créer un script batch temporaire pour lancer avec les bonnes variables
+    $batchScript = @"
+@echo off
+set DB_DIALECT=postgresql
+set DATABASE_URL=postgresql+psycopg://postgres:postgres@127.0.0.1:5433/postgres
+"$BackendDir\venv\Scripts\uvicorn.exe" app.main:app --host 127.0.0.1 --port 8000 --reload
+"@
+    $batchFile = Join-Path $BackendDir "start_backend_pg.bat"
+    $batchScript | Out-File -FilePath $batchFile -Encoding ASCII
+    Start-Process -FilePath $batchFile -WindowStyle Hidden
+    # Ne pas supprimer immédiatement pour laisser le temps au backend de démarrer
+    Start-Sleep -Seconds 2
+    Remove-Item $batchFile -ErrorAction SilentlyContinue -Force
+} else {
+    $uvicorn = Join-Path $BackendDir "venv\Scripts\uvicorn.exe"
+    Start-Process -FilePath $uvicorn -ArgumentList "app.main:app","--host","127.0.0.1","--port","8000","--reload" -WindowStyle Hidden
+}
+Start-Sleep -Seconds 15
+Write-Host "[*] Attente supplementaire pour initialisation complete..."
 
 # Tests
 Write-Host ""
