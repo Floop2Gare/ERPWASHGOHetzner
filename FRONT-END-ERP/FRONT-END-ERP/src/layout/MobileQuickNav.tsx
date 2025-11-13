@@ -3,15 +3,13 @@ import clsx from 'clsx';
 import { useAppData } from '../store/useAppData';
 
 const links = [
-  { to: '/', label: 'Tableau', page: 'dashboard' as const },
+  { to: '/tableau-de-bord', label: 'Tableau', page: 'dashboard' as const },
   { to: '/service', label: 'Services', page: 'service' as const },
-  { to: '/achats', label: 'Achats', page: 'achats' as const },
-  { to: '/documents', label: 'Documents', page: 'documents' as const },
+  { to: '/workspace/comptabilite/achats', label: 'Achats', page: 'comptabilite.achats' as const },
   { to: '/clients', label: 'Clients', page: 'clients' as const },
   { to: '/planning', label: 'Planning', page: 'planning' as const },
   { to: '/lead', label: 'Leads', page: 'leads' as const },
   { to: '/stats', label: 'Analyses', page: 'stats' as const },
-  { to: '/parametres', label: 'Paramètres', page: 'parametres' as const },
 ];
 
 export const MobileQuickNav = () => {
@@ -25,7 +23,7 @@ export const MobileQuickNav = () => {
             <li key={link.to}>
               <NavLink
                 to={link.to}
-                end={link.to === '/'}
+                end={link.to === '/' || link.to === '/tableau-de-bord'}
                 className={({ isActive }) =>
                   clsx(
                     'inline-flex items-center border-b pb-1 text-[12px] font-medium uppercase tracking-[0.28em] transition',

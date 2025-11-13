@@ -6,19 +6,34 @@ import {
   useRef,
   useState,
 } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
 
 import { useAppData } from '../store/useAppData';
 import { BRAND_NAME } from '../lib/branding';
 import { formatCurrency, formatDate } from '../lib/format';
 import MenuRoundedIcon from '@mui/icons-material/MenuRounded';
+import { getWorkspaceModule, type WorkspaceModuleId } from '../workspace/modules';
 
 interface TopbarProps {
   onMenuToggle: () => void;
   isDesktopSidebarHidden: boolean;
   onToggleDesktopSidebar: () => void;
+  variant?: 'default' | 'floating';
+  searchInputId?: string;
+  welcomeTitle?: string;
 }
+
+const IconSettings = () => (
+  <svg viewBox="0 0 20 20" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={1.4}>
+    <circle cx="10" cy="10" r="3" strokeLinecap="round" strokeLinejoin="round" />
+    <path
+      d="M16.8 12.6a1.5 1.5 0 0 0 .3 1.65l.05.05a1.8 1.8 0 0 1 0 2.55 1.8 1.8 0 0 1-2.55 0l-.05-.05a1.5 1.5 0 0 0-1.65-.3 1.5 1.5 0 0 0-.9 1.35V18a1.8 1.8 0 0 1-1.8 1.8A1.8 1.8 0 0 1 8.4 18v-.08a1.5 1.5 0 0 0-.9-1.35 1.5 1.5 0 0 0-1.65.3l-.05.05a1.8 1.8 0 0 1-2.55 0 1.8 1.8 0 0 1 0-2.55l.05-.05a1.5 1.5 0 0 0 .3-1.65 1.5 1.5 0 0 0-1.35-.9H2a1.8 1.8 0 0 1-1.8-1.8A1.8 1.8 0 0 1 2 8.4h.09a1.5 1.5 0 0 0 1.35-.9 1.5 1.5 0 0 0-.3-1.65l-.05-.05a1.8 1.8 0 0 1 0-2.55 1.8 1.8 0 0 1 2.55 0l.05.05a1.5 1.5 0 0 0 1.65.3 1.5 1.5 0 0 0 .9-1.35V2A1.8 1.8 0 0 1 10 0.2 1.8 1.8 0 0 1 11.8 2v.09a1.5 1.5 0 0 0 .9 1.35 1.5 1.5 0 0 0 1.65-.3l.05-.05a1.8 1.8 0 0 1 2.55 0 1.8 1.8 0 0 1 0 2.55l-.05.05a1.5 1.5 0 0 0-.3 1.65 1.5 1.5 0 0 0 1.35.9H18a1.8 1.8 0 0 1 1.8 1.8A1.8 1.8 0 0 1 18 12.2h-.09a1.5 1.5 0 0 0-1.35.9z"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
 
 const IconSun = () => (
   <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={1.4}>
@@ -44,7 +59,48 @@ const IconMoon = () => (
   </svg>
 );
 
-export const Topbar = ({ onMenuToggle, isDesktopSidebarHidden, onToggleDesktopSidebar }: TopbarProps) => {
+const BREADCRUMB_LABEL_OVERRIDES = new Map<string, string>([
+  ['crm', 'CRM'],
+  ['hub', 'Accueil'],
+  ['accueil', 'Accueil'],
+  ['parametres', 'Paramètres'],
+  ['parametres general', 'Paramètres généraux'],
+  ['tableau de bord', 'Tableau de bord'],
+  ['tableau-de-bord', 'Tableau de bord'],
+  ['clients', 'Clients'],
+  ['leads', 'Leads'],
+  ['services', 'Services'],
+  ['documents', 'Documents'],
+  ['planning', 'Planning'],
+  ['stats', 'Statistiques'],
+]);
+
+const formatBreadcrumbLabel = (segment: string) => {
+  const cleaned = segment.replace(/[-_]+/g, ' ').trim();
+  if (!cleaned) {
+    return segment;
+  }
+
+  const normalized = cleaned.toLowerCase();
+  if (BREADCRUMB_LABEL_OVERRIDES.has(normalized)) {
+    return BREADCRUMB_LABEL_OVERRIDES.get(normalized)!;
+  }
+
+  if (BREADCRUMB_LABEL_OVERRIDES.has(segment.toLowerCase())) {
+    return BREADCRUMB_LABEL_OVERRIDES.get(segment.toLowerCase())!;
+  }
+
+  return cleaned.replace(/\b\p{L}/gu, (char) => char.toLocaleUpperCase());
+};
+
+export const Topbar = ({
+  onMenuToggle,
+  isDesktopSidebarHidden,
+  onToggleDesktopSidebar,
+  variant = 'default',
+  searchInputId,
+  welcomeTitle,
+}: TopbarProps) => {
   const [query, setQuery] = useState('');
   const [isFocused, setIsFocused] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -52,19 +108,11 @@ export const Topbar = ({ onMenuToggle, isDesktopSidebarHidden, onToggleDesktopSi
   const blurTimeoutRef = useRef<number | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const navigate = useNavigate();
-  const {
-    clients,
-    leads,
-    engagements,
-    services,
-    computeEngagementTotals,
-    documents,
-    companies,
-    userProfile,
-    logout,
-    theme,
-    toggleTheme,
-  } = useAppData();
+  const location = useLocation();
+  const { clients, leads, engagements, services, computeEngagementTotals, documents, companies, userProfile, logout } =
+    useAppData();
+  const theme = useAppData((state) => state.theme);
+  const toggleTheme = useAppData((state) => state.toggleTheme);
   const displayName = `${userProfile.firstName} ${userProfile.lastName}`.trim() || 'Utilisateur';
   const displayRole = userProfile.role || BRAND_NAME;
   const initials = `${userProfile.firstName.charAt(0) ?? ''}${userProfile.lastName.charAt(0) ?? ''}`
@@ -74,6 +122,70 @@ export const Topbar = ({ onMenuToggle, isDesktopSidebarHidden, onToggleDesktopSi
   const serviceById = useMemo(() => new Map(services.map((service) => [service.id, service])), [services]);
   const clientById = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
   const companyById = useMemo(() => new Map(companies.map((company) => [company.id, company])), [companies]);
+
+  const normalizedPath = useMemo(() => {
+    if (!location.pathname) {
+      return '/';
+    }
+    if (location.pathname.length > 1 && location.pathname.endsWith('/')) {
+      return location.pathname.slice(0, -1);
+    }
+    return location.pathname;
+  }, [location.pathname]);
+
+  const breadcrumbItems = useMemo(() => {
+    const items: { label: string; to: string | null }[] = [
+      { label: 'Accueil', to: normalizedPath === '/' ? null : '/' },
+    ];
+
+    if (normalizedPath === '/' || normalizedPath === '') {
+      return items;
+    }
+
+    const segments = normalizedPath.split('/').filter(Boolean);
+
+    if (segments[0] === 'workspace') {
+      const moduleId = segments[1] as WorkspaceModuleId | undefined;
+      const module = moduleId ? getWorkspaceModule(moduleId) : undefined;
+      if (module) {
+        const moduleNavItems = module.nav.flatMap((section) => section.items);
+        const isModuleRoot = segments.length <= 2;
+        items.push({
+          label: module.name,
+          to: isModuleRoot ? null : module.basePath,
+        });
+
+        if (!isModuleRoot) {
+          let cumulative = module.basePath;
+          const detailSegments = segments.slice(2);
+          detailSegments.forEach((segment, index) => {
+            cumulative += `/${segment}`;
+            const match = moduleNavItems.find((item) => item.to === cumulative);
+            const label = match?.label ?? formatBreadcrumbLabel(segment);
+            const isLast = index === detailSegments.length - 1;
+            items.push({
+              label,
+              to: isLast ? null : match?.to ?? cumulative,
+            });
+          });
+        }
+
+        return items;
+      }
+    }
+
+    let cumulative = '';
+    segments.forEach((segment, index) => {
+      cumulative += `/${segment}`;
+      const isLast = index === segments.length - 1;
+      items.push({
+        label: formatBreadcrumbLabel(segment),
+        to: isLast ? null : cumulative,
+      });
+    });
+
+    return items;
+  }, [normalizedPath]);
 
   const trimmedQuery = query.trim().toLowerCase();
 
@@ -262,13 +374,13 @@ export const Topbar = ({ onMenuToggle, isDesktopSidebarHidden, onToggleDesktopSi
     setQuery('');
     setIsFocused(false);
     if (item.kind === 'client') {
-      navigate(`/clients?clientId=${item.id}`);
+      navigate(`/workspace/crm/clients?clientId=${item.id}`);
     } else if (item.kind === 'lead') {
-      navigate(`/lead?leadId=${item.id}`);
+      navigate(`/workspace/crm/leads?leadId=${item.id}`);
     } else if (item.kind === 'engagement') {
-      navigate(`/service?engagementId=${item.id}`);
+      navigate(`/workspace/crm/services?engagementId=${item.id}`);
     } else if (item.kind === 'document') {
-      navigate(`/documents?documentId=${item.id}`);
+      navigate(`/workspace/administratif/documents?documentId=${item.id}`);
     }
   };
 
@@ -291,7 +403,6 @@ export const Topbar = ({ onMenuToggle, isDesktopSidebarHidden, onToggleDesktopSi
     navigate(path);
   };
 
-  const APP_VERSION: string = (import.meta as any).env?.VITE_APP_VERSION || '1.1';
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -311,14 +422,21 @@ export const Topbar = ({ onMenuToggle, isDesktopSidebarHidden, onToggleDesktopSi
 
   const topbarDesktopCols = isDesktopSidebarHidden
     ? 'lg:grid-cols-[auto_minmax(0,1fr)_auto]'
-    : 'lg:grid-cols-[minmax(0,1fr)_auto]';
+    : 'lg:grid-cols-[auto_minmax(0,1fr)_auto]';
 
   return (
-    <header className="topbar-shell" data-elevated={isElevated ? 'true' : undefined}>
+    <header
+      className={clsx('topbar-shell', variant === 'floating' && 'topbar-shell--floating')}
+      data-elevated={isElevated ? 'true' : undefined}
+    >
       <div
-        className={`topbar grid w-full gap-3 px-4 py-3 sm:px-6 lg:items-center lg:gap-6 ${topbarDesktopCols}`}
+        className={clsx(
+          'topbar grid w-full gap-3 px-4 py-3 sm:px-6 lg:items-center lg:gap-6',
+          topbarDesktopCols,
+          variant === 'floating' && 'topbar--floating'
+        )}
       >
-        <div className={clsx('flex items-center gap-3', !isDesktopSidebarHidden && 'lg:hidden')}>
+        <div className="flex items-center gap-3">
           {isDesktopSidebarHidden && (
             <button
               type="button"
@@ -329,13 +447,20 @@ export const Topbar = ({ onMenuToggle, isDesktopSidebarHidden, onToggleDesktopSi
               <MenuRoundedIcon fontSize="small" />
             </button>
           )}
-          <Link to="/" className="topbar__brand">
+          <Link to="/" className="topbar__brand lg:hidden">
             <span className="topbar__brand-mark">WF</span>
             <span className="topbar__brand-text">
               <span>Wash&Go</span>
               <small>App</small>
             </span>
           </Link>
+          {welcomeTitle && (
+            <div className="hidden lg:flex">
+              <h1 className="text-xl font-black tracking-tight text-slate-900 dark:text-white">
+                {welcomeTitle}
+              </h1>
+            </div>
+          )}
           <button
             type="button"
             onClick={onMenuToggle}
@@ -348,78 +473,92 @@ export const Topbar = ({ onMenuToggle, isDesktopSidebarHidden, onToggleDesktopSi
             </svg>
           </button>
         </div>
-        <form onSubmit={handleSubmit} className="topbar__search order-3 w-full lg:order-none lg:mx-auto lg:max-w-2xl">
-          <label htmlFor="global-search" className="sr-only">
-            Rechercher
-          </label>
-          <div className="relative">
-            <input
-              id="global-search"
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              onFocus={() => setIsFocused(true)}
-              onBlur={handleBlur}
-              placeholder="Rechercher clients, prestations ou documents"
-              className="w-full rounded-xl px-4 py-2.5 text-sm text-text placeholder:text-muted focus:outline-none"
-              autoComplete="off"
-            />
-            {isFocused && trimmedQuery && (
-              <div className="absolute left-0 right-0 z-40 mt-2 max-h-80 overflow-y-auto rounded-xl border border-border bg-surface shadow-sm">
-                {flatResults.length === 0 ? (
-                  <p className="px-4 py-3 text-xs text-muted">Aucun résultat</p>
-                ) : (
-                  <div className="divide-y divide-border/60">
-                    {groups.map((group) => (
-                      <div key={group.label} className="py-2">
-                        <p className="px-4 pb-1 text-[11px] font-semibold uppercase tracking-[0.28em] text-muted">
-                          {group.label}
-                        </p>
-                        <ul className="space-y-1">
-                          {group.items.map((item) => (
-                            <li key={item.id}>
-                              <button
-                                type="button"
-                                onMouseDown={(event) => handleResultMouseDown(event, item)}
-                                className="group flex w-full items-center justify-between gap-3 px-4 py-2 text-left text-sm text-text transition-colors hover:bg-surface"
-                              >
-                                <span>
-                                  <span className="block font-medium text-text group-hover:text-primary">{item.title}</span>
-                                  <span className="mt-0.5 block text-xs text-muted">{item.subtitle}</span>
-                                </span>
-                                {item.badge && (
-                                  <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] text-muted">
-                                    {item.badge}
+        <div className="topbar__middle order-3 w-full space-y-2 lg:order-none lg:flex lg:flex-row lg:items-center lg:justify-center lg:gap-6 lg:space-y-0">
+          <nav className="topbar__breadcrumbs lg:flex lg:items-center lg:justify-center" aria-label="Fil d’Ariane">
+            <ol className="lg:flex lg:items-center lg:justify-center lg:gap-2">
+              {breadcrumbItems.map((item, index) => {
+                const isLast = index === breadcrumbItems.length - 1;
+                return (
+                  <li
+                    key={`${item.label}-${index}`}
+                    className="topbar__breadcrumb-item"
+                    aria-current={isLast ? 'page' : undefined}
+                  >
+                    {index !== 0 && <span className="topbar__breadcrumb-separator">{'>'}</span>}
+                    {item.to && !isLast ? (
+                      <Link to={item.to} className="topbar__breadcrumb-link">
+                        {item.label}
+                      </Link>
+                    ) : (
+                      <span className="topbar__breadcrumb-current">{item.label}</span>
+                    )}
+                  </li>
+                );
+              })}
+            </ol>
+          </nav>
+          <form onSubmit={handleSubmit} className="topbar__search w-full lg:max-w-md">
+            <label htmlFor={searchInputId} className="sr-only">
+              Rechercher
+            </label>
+            <div className="relative">
+              <input
+                id={searchInputId}
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                onFocus={() => setIsFocused(true)}
+                onBlur={handleBlur}
+                placeholder="Rechercher clients, prestations ou documents"
+                className="w-full rounded-xl px-4 py-2.5 text-sm text-text placeholder:text-muted focus:outline-none"
+                autoComplete="off"
+              />
+              {isFocused && trimmedQuery && (
+                <div className="absolute left-0 right-0 z-40 mt-2 max-h-80 overflow-y-auto rounded-xl border border-border bg-surface shadow-sm">
+                  {flatResults.length === 0 ? (
+                    <p className="px-4 py-3 text-xs text-muted">Aucun résultat</p>
+                  ) : (
+                    <div className="divide-y divide-border/60">
+                      {groups.map((group) => (
+                        <div key={group.label} className="py-2">
+                          <p className="px-4 pb-1 text-[11px] font-semibold uppercase tracking-[0.28em] text-muted">
+                            {group.label}
+                          </p>
+                          <ul className="space-y-1">
+                            {group.items.map((item) => (
+                              <li key={item.id}>
+                                <button
+                                  type="button"
+                                  onMouseDown={(event) => handleResultMouseDown(event, item)}
+                                  className="group flex w-full items-center justify-between gap-3 px-4 py-2 text-left text-sm text-text transition-colors hover:bg-surface"
+                                >
+                                  <span>
+                                    <span className="block font-medium text-text group-hover:text-primary">{item.title}</span>
+                                    <span className="mt-0.5 block text-xs text-muted">{item.subtitle}</span>
                                   </span>
-                                )}
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </form>
+                                  {item.badge && (
+                                    <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] text-muted">
+                                      {item.badge}
+                                    </span>
+                                  )}
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </form>
+        </div>
         <div className="topbar__actions flex items-center justify-end gap-3">
-          <span className="topbar__version hidden px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] sm:inline-block">
-            v {APP_VERSION}
-          </span>
           <div className="topbar__identity hidden text-right text-[11px] uppercase tracking-[0.28em] lg:block">
             <p className="topbar__identity-name text-sm font-semibold">{displayName}</p>
             <p className="topbar__identity-role text-[10px]">{displayRole}</p>
           </div>
-          <button
-            type="button"
-            onClick={toggleTheme}
-            className="topbar__icon-button inline-flex h-10 w-10 items-center justify-center rounded-xl text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
-            aria-label={theme === 'dark' ? 'Activer le mode clair' : 'Activer le mode sombre'}
-          >
-            {theme === 'dark' ? <IconSun /> : <IconMoon />}
-          </button>
           <div className="relative" ref={menuRef}>
             <button
               type="button"
@@ -448,18 +587,10 @@ export const Topbar = ({ onMenuToggle, isDesktopSidebarHidden, onToggleDesktopSi
                 <button
                   type="button"
                   role="menuitem"
-                  onClick={() => handleMenuNavigate('/parametres?tab=profil')}
+          onClick={() => handleMenuNavigate('/workspace/parametres/general?tab=profil')}
                   className="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-surface hover:text-primary"
                 >
                   Mon profil
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => handleMenuNavigate('/parametres')}
-                  className="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-surface hover:text-primary"
-                >
-                  Paramètres
                 </button>
                 <button
                   type="button"
@@ -476,6 +607,23 @@ export const Topbar = ({ onMenuToggle, isDesktopSidebarHidden, onToggleDesktopSi
               </div>
             )}
           </div>
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className="topbar__icon-button inline-flex h-10 w-10 items-center justify-center rounded-xl text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+            aria-label={theme === 'dark' ? 'Passer en mode clair' : 'Passer en mode sombre'}
+            title={theme === 'dark' ? 'Passer en mode clair' : 'Passer en mode sombre'}
+          >
+            {theme === 'dark' ? <IconSun /> : <IconMoon />}
+          </button>
+          <Link
+            to="/workspace/parametres/general"
+            className="topbar__icon-button inline-flex h-10 w-10 items-center justify-center rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+            aria-label="Accéder aux paramètres"
+            title="Accéder aux paramètres"
+          >
+            <IconSettings />
+          </Link>
         </div>
       </div>
     </header>

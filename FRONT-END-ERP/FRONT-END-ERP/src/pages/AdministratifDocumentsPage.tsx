@@ -99,7 +99,7 @@ type FormState = typeof EMPTY_FORM;
 
 type ActivePanel = 'create' | { type: 'edit'; id: string } | null;
 
-const DocumentsPage = () => {
+const AdministratifDocumentsPage = () => {
   const { documents, addDocument, updateDocument, removeDocument, hasPermission } = useAppData();
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -268,6 +268,39 @@ const DocumentsPage = () => {
       return haystack.includes(query);
     });
   }, [documents, searchTerm]);
+
+  const formatInteger = useMemo(() => new Intl.NumberFormat('fr-FR'), []);
+
+  const summaryItems = useMemo(() => {
+    const totalDocuments = documents.length;
+    const documentsWithAttachment = documents.filter(
+      (document) => Boolean(document.fileData) || Boolean(document.url)
+    ).length;
+    const latestUpdate = documents.reduce<string | null>((latest, document) => {
+      if (!document.updatedAt) {
+        return latest;
+      }
+      if (!latest) {
+        return document.updatedAt;
+      }
+      return new Date(document.updatedAt) > new Date(latest) ? document.updatedAt : latest;
+    }, null);
+
+    return [
+      {
+        label: 'Documents actifs',
+        value: formatInteger.format(totalDocuments),
+      },
+      {
+        label: 'Pièces disponibles',
+        value: formatInteger.format(documentsWithAttachment),
+      },
+      {
+        label: 'Dernière mise à jour',
+        value: latestUpdate ? formatDate(latestUpdate) : '—',
+      },
+    ];
+  }, [documents, formatInteger]);
 
   const handleOpenCreate = () => {
     if (!canEditDocuments) {
@@ -449,70 +482,81 @@ const DocumentsPage = () => {
   });
 
   return (
-    <div className="space-y-6">
-      <Card
-        title="Documents internes"
-        description="Déposez et classez les pièces essentielles de votre activité."
-        action={
-          <div className="flex flex-wrap gap-2">
-            {canEditDocuments && (
-              <Button variant="secondary" size="sm" onClick={handleOpenCreate}>
-                Ajouter un document
-              </Button>
-            )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => window.open('https://drive.google.com/', '_blank', 'noopener')}
-            >
-              Ouvrir Google Drive
-            </Button>
-          </div>
-        }
-      >
-        <div className="mt-4 flex flex-col gap-2 sm:w-80">
-          <label htmlFor="document-search" className={labelClassName}>
-            Recherche
-          </label>
-          <input
-            id="document-search"
-            type="search"
-            placeholder="Rechercher un document"
-            className={inputClassName}
-            value={searchTerm}
-            onChange={(event) => setSearchTerm(event.target.value)}
-          />
+    <div className="documents-page space-y-6">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Documents</h1>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+            Centralisez vos documents clés et suivez leurs mises à jour
+          </p>
         </div>
-      </Card>
+      </div>
 
-      <div ref={listSectionRef}>
+      <nav className="dashboard-secondary-bar" aria-label="Vue d'ensemble des documents">
+        <div className="dashboard-secondary-bar__content">
+          <div className="dashboard-secondary-bar__left">
+            <span className="dashboard-secondary-bar__label">Vue d’ensemble</span>
+          </div>
+          <div className="dashboard-secondary-bar__chips">
+            {summaryItems.map((item) => (
+              <span key={item.label} className="dashboard-secondary-bar__chip">
+                <span className="dashboard-secondary-bar__chip-value">{item.value}</span>
+                <span className="dashboard-secondary-bar__chip-label">{item.label}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      </nav>
+
+      <section ref={listSectionRef} className="space-y-6">
+        <Card padding="sm" className="space-y-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <label className="flex flex-col gap-1 text-xs text-slate-600">
+              <span className="text-[11px] uppercase tracking-[0.3em] text-slate-400">Recherche</span>
+              <input
+                id="document-search"
+                type="search"
+                placeholder="Titre, catégorie, tag…"
+                className="rounded-soft border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+              />
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {canEditDocuments && (
+                <Button variant="secondary" size="sm" onClick={handleOpenCreate}>
+                  Ajouter un document
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => window.open('https://drive.google.com/', '_blank', 'noopener')}
+              >
+                Ouvrir Google Drive
+              </Button>
+            </div>
+          </div>
+        </Card>
+
         <Card>
           <Table
-          columns={[
-            'Document',
-            'Type / Numéro',
-            'Statut',
-            'Montants',
-            'Mise à jour',
-            'Actions',
-          ]}
-          rows={rows}
-          tone="plain"
-          density="compact"
-          striped={false}
-          onRowClick={
-            canEditDocuments ? (index) => handleOpenEdit(filteredDocuments[index]) : undefined
-          }
-          rowClassName={(index) => {
-            const document = filteredDocuments[index];
-            if (activePanel && activePanel !== 'create' && activePanel.id === document.id) {
-              return 'bg-primary/5';
-            }
-            return undefined;
-          }}
+            columns={['Document', 'Type / Numéro', 'Statut', 'Montants', 'Mise à jour', 'Actions']}
+            rows={rows}
+            tone="plain"
+            density="compact"
+            striped={false}
+            onRowClick={canEditDocuments ? (index) => handleOpenEdit(filteredDocuments[index]) : undefined}
+            rowClassName={(index) => {
+              const document = filteredDocuments[index];
+              if (activePanel && activePanel !== 'create' && activePanel.id === document.id) {
+                return 'bg-primary/5';
+              }
+              return undefined;
+            }}
           />
         </Card>
-      </div>
+      </section>
 
       {canEditDocuments && activePanel === 'create' && (
         <Card title="Nouveau document" description="Ajoutez un élément à l’archive interne." padding="lg">
@@ -743,4 +787,4 @@ const DocumentsPage = () => {
   );
 };
 
-export default DocumentsPage;
+export default AdministratifDocumentsPage;

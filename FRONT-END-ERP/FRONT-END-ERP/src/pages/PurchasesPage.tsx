@@ -269,6 +269,19 @@ const PurchasesPage = () => {
     return { totalHt, totalVat, totalTtc, monthlyAverage };
   }, [filteredPurchases, periodStart, periodEnd]);
 
+  const numberFormatter = useMemo(() => new Intl.NumberFormat('fr-FR'), []);
+  const { totalHt, totalVat, totalTtc, monthlyAverage } = totals;
+  const overviewChips = useMemo(
+    () => [
+      { label: 'Achats filtrés', value: numberFormatter.format(filteredPurchases.length) },
+      { label: 'Montant TTC', value: toCurrency(totalTtc) },
+      { label: 'Montant HT', value: toCurrency(totalHt) },
+      { label: 'TVA cumulée', value: toCurrency(totalVat) },
+      { label: 'Dépense mensuelle', value: toCurrency(monthlyAverage) },
+    ],
+    [filteredPurchases.length, numberFormatter, totalTtc, totalHt, totalVat, monthlyAverage]
+  );
+
   const allSelected =
     filteredPurchases.length > 0 && filteredPurchases.every((purchase) => selectedIds.includes(purchase.id));
 
@@ -462,128 +475,133 @@ const PurchasesPage = () => {
   };
 
   return (
-    <div className="space-y-6">
-      <header className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-        <div>
-          <h1 className="text-[20px] font-semibold text-slate-900">Achats</h1>
-          <p className="text-[13px] text-slate-500">
-            Suivez vos dépenses, rapprochez-les des sociétés {BRAND_NAME} et préparez vos marges.
-          </p>
+    <div className="purchases-page space-y-10">
+      <header className="dashboard-hero">
+        <div className="dashboard-hero__content">
+          <div className="dashboard-hero__intro">
+            <p className="dashboard-hero__eyebrow">Suivi des dépenses</p>
+            <h1 className="dashboard-hero__title">Pilotez vos achats en confiance</h1>
+            <p className="dashboard-hero__subtitle">
+              Consolidez vos factures fournisseurs, associez-les à vos sociétés {BRAND_NAME} et anticipez la trésorerie.
+            </p>
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" size="sm" onClick={handleExport}>
-            Exporter CSV
-          </Button>
-          <Button size="sm" onClick={openCreate}>
-            <IconPlus />
-            Nouvel achat
-          </Button>
-        </div>
+        <div className="dashboard-hero__glow" aria-hidden />
       </header>
 
-      <Card className="shadow-none border-slate-200/80">
-        <div className="grid gap-4 md:grid-cols-4">
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.24em] text-slate-500">Total HT</p>
-            <p className="mt-1 text-[20px] font-semibold text-slate-900">{toCurrency(totals.totalHt)}</p>
+      <nav className="dashboard-secondary-bar">
+        <div className="dashboard-secondary-bar__content">
+          <div className="dashboard-secondary-bar__left">
+            <span className="dashboard-secondary-bar__label">Vue d’ensemble</span>
           </div>
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.24em] text-slate-500">Total TVA</p>
-            <p className="mt-1 text-[20px] font-semibold text-slate-900">{toCurrency(totals.totalVat)}</p>
-          </div>
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.24em] text-slate-500">Total TTC</p>
-            <p className="mt-1 text-[20px] font-semibold text-slate-900">{toCurrency(totals.totalTtc)}</p>
-          </div>
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.24em] text-slate-500">Dépense mensuelle moyenne</p>
-            <p className="mt-1 text-[20px] font-semibold text-slate-900">{toCurrency(totals.monthlyAverage)}</p>
+          <div className="dashboard-secondary-bar__chips">
+            {overviewChips.map((chip) => (
+              <span key={chip.label} className="dashboard-secondary-bar__chip">
+                <span className="dashboard-secondary-bar__chip-value">{chip.value}</span>
+                <span className="dashboard-secondary-bar__chip-label">{chip.label}</span>
+              </span>
+            ))}
           </div>
         </div>
-      </Card>
+      </nav>
+
+      {feedback && (
+        <div className="rounded-soft border border-primary/30 bg-primary/5 px-4 py-2 text-xs text-primary">
+          {feedback}
+        </div>
+      )}
 
       <Card className="shadow-none border-slate-200/80">
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="flex flex-col gap-1">
-            <label className="text-[11px] font-medium text-slate-500" htmlFor="purchase-search">
-              Recherche
-            </label>
-            <input
-              id="purchase-search"
-              type="search"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              className="w-48 rounded-soft border border-slate-200 bg-white px-3 py-2 text-[13px] text-slate-700 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-            />
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-medium text-slate-500" htmlFor="purchase-search">
+                Recherche
+              </label>
+              <input
+                id="purchase-search"
+                type="search"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Fournisseur, référence, société"
+                className="rounded-soft border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-medium text-slate-500" htmlFor="purchase-start">
+                Période du
+              </label>
+              <input
+                id="purchase-start"
+                type="date"
+                value={periodStart}
+                onChange={(event) => setPeriodStart(event.target.value)}
+                className="rounded-soft border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-medium text-slate-500" htmlFor="purchase-end">
+                Au
+              </label>
+              <input
+                id="purchase-end"
+                type="date"
+                value={periodEnd}
+                onChange={(event) => setPeriodEnd(event.target.value)}
+                className="rounded-soft border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-medium text-slate-500" htmlFor="purchase-status">
+                Statut
+              </label>
+              <select
+                id="purchase-status"
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(event.target.value as 'Tous' | PurchaseStatus)}
+                className="rounded-soft border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
+              >
+                <option value="Tous">Tous</option>
+                {statusOptions.map((status) => (
+                  <option key={status} value={status}>
+                    {status}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-medium text-slate-500" htmlFor="purchase-category">
+                Type d'achat
+              </label>
+              <select
+                id="purchase-category"
+                value={categoryFilter}
+                onChange={(event) => setCategoryFilter(event.target.value as 'Toutes' | PurchaseCategory)}
+                className="rounded-soft border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
+              >
+                <option value="Toutes">Tous</option>
+                {categoryOptions.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-[11px] font-medium text-slate-500" htmlFor="purchase-start">
-              Période du
-            </label>
-            <input
-              id="purchase-start"
-              type="date"
-              value={periodStart}
-              onChange={(event) => setPeriodStart(event.target.value)}
-              className="rounded-soft border border-slate-200 bg-white px-3 py-2 text-[13px] text-slate-700 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-[11px] font-medium text-slate-500" htmlFor="purchase-end">
-              au
-            </label>
-            <input
-              id="purchase-end"
-              type="date"
-              value={periodEnd}
-              onChange={(event) => setPeriodEnd(event.target.value)}
-              className="rounded-soft border border-slate-200 bg-white px-3 py-2 text-[13px] text-slate-700 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-[11px] font-medium text-slate-500" htmlFor="purchase-status">
-              Statut
-            </label>
-            <select
-              id="purchase-status"
-              value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value as 'Tous' | PurchaseStatus)}
-              className="rounded-soft border border-slate-200 bg-white px-3 py-2 text-[13px] text-slate-700 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-            >
-              <option value="Tous">Tous</option>
-              {statusOptions.map((status) => (
-                <option key={status} value={status}>
-                  {status}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-[11px] font-medium text-slate-500" htmlFor="purchase-category">
-              Type d'achat
-            </label>
-            <select
-              id="purchase-category"
-              value={categoryFilter}
-              onChange={(event) =>
-                setCategoryFilter(event.target.value as 'Toutes' | PurchaseCategory)
-              }
-              className="rounded-soft border border-slate-200 bg-white px-3 py-2 text-[13px] text-slate-700 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-            >
-              <option value="Toutes">Tous</option>
-              {categoryOptions.map((category) => (
-                <option key={category} value={category}>
-                  {category}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex-1" />
-          {selectedIds.length > 0 && (
-            <Button variant="secondary" size="sm" onClick={handleBulkDelete}>
-              Supprimer la sélection
+          <div className="flex flex-wrap gap-2">
+            {selectedIds.length > 0 && (
+              <Button variant="secondary" size="sm" onClick={handleBulkDelete}>
+                Supprimer la sélection
+              </Button>
+            )}
+            <Button variant="secondary" size="sm" onClick={handleExport}>
+              Exporter CSV
             </Button>
-          )}
+            <Button size="sm" onClick={openCreate}>
+              <IconPlus />
+              Nouvel achat
+            </Button>
+          </div>
         </div>
       </Card>
 
@@ -1074,11 +1092,6 @@ const PurchasesPage = () => {
         </div>
       )}
 
-      {feedback && (
-        <div className="rounded-soft border border-primary/30 bg-primary/5 px-3 py-2 text-[12px] text-primary">
-          {feedback}
-        </div>
-      )}
     </div>
   );
 };

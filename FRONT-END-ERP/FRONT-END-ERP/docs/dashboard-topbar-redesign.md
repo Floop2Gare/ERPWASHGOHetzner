@@ -47,6 +47,14 @@ Ces ajustements garantissent une hiérarchie visuelle cohérente et évitent que
 4. Vérifier les styles dans `index.css` afin de réutiliser les classes existantes avant d’en créer de nouvelles.
 5. Tester les interactions principales (ouverture/fermeture sidebar, hover, focus) en desktop et mobile.
 
+### Exemple appliqué : `ClientsPage`
+
+- Adoption des composants `dashboard-hero` et `dashboard-secondary-bar` pour harmoniser l’en-tête avec la page tableau de bord.
+- Création d’un tableau `summaryItems` pour injecter directement les métriques clés dans la barre secondaire sans dupliquer les cartes statistiques.
+- Retrait du triptyque de cartes initiales au profit d’un seul point d’entrée « Vue d’ensemble ».
+- Conservation des actions (nouveau client, import/export) dans les sections opérationnelles existantes afin d’éviter de surcharger le hero.
+- Remplacement de l’ancien composant `Table` par une grille interactive bâtie sur `@tanstack/react-table` (`DataTable`) afin de bénéficier du tri natif, d’un rendu plus sobre et d’une meilleure cohérence visuelle avec le reste de l’interface.
+
 ## Points de vigilance
 
 - Conserver la cohérence avec les tokens design (classes `topbar__*`, `dashboard-*`).

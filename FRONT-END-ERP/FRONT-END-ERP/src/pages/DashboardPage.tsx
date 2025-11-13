@@ -161,7 +161,74 @@ type QuickLinkThemeVars = CSSProperties & {
   '--ql-icon-bg': string;
   '--ql-icon-color': string;
   '--ql-text': string;
+  '--ql-text-rgb'?: string;
   '--ql-shadow': string;
+};
+
+type QuickLinkPalette = {
+  accentBg: string;
+  accentBorder: string;
+  accentHover: string;
+  iconBg: string;
+  iconColor: string;
+  textColor: string;
+  shadow: string;
+};
+
+type QuickLinkDefinition = {
+  label: string;
+  to: string;
+  description: string;
+  icon: JSX.Element;
+  palette: {
+    light: QuickLinkPalette;
+    dark: QuickLinkPalette;
+  };
+};
+
+const colorToRgbChannels = (value: string | undefined): string | undefined => {
+  if (!value) {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  if (trimmed.startsWith('#')) {
+    let hex = trimmed.slice(1);
+    if (hex.length === 3) {
+      hex = hex
+        .split('')
+        .map((char) => char + char)
+        .join('');
+    }
+
+    if (hex.length === 6) {
+      const bigint = Number.parseInt(hex, 16);
+      if (Number.isFinite(bigint)) {
+        const r = (bigint >> 16) & 255;
+        const g = (bigint >> 8) & 255;
+        const b = bigint & 255;
+        return `${r} ${g} ${b}`;
+      }
+    }
+  }
+
+  const rgbMatch = trimmed.match(/^rgba?\(([^)]+)\)$/i);
+  if (rgbMatch) {
+    const parts = rgbMatch[1]
+      .split(',')
+      .map((part) => Number.parseFloat(part.trim()))
+      .slice(0, 3);
+
+    if (parts.every((part) => Number.isFinite(part))) {
+      return parts.map((part) => Math.round(part)).join(' ');
+    }
+  }
+
+  return undefined;
 };
 
 const DashboardPage = () => {
@@ -176,6 +243,7 @@ const DashboardPage = () => {
     recordLeadActivity,
     updateLead,
     userProfile,
+    theme,
   } = useAppData();
 
   const clientsById = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
@@ -339,125 +407,155 @@ const DashboardPage = () => {
     },
   ];
 
-  const quickLinks = [
+  const quickLinks: QuickLinkDefinition[] = [
     {
       label: 'Services',
       to: '/service',
       description: 'Construire une prestation',
       icon: <ServicesIcon />,
-      accentBg: '#f4f6ff',
-      accentBorder: '#d8dffe',
-      accentHover: '#c3d0fd',
-      iconBg: 'rgba(79, 70, 229, 0.12)',
-      iconColor: '#4338ca',
-      textColor: '#1e1b4b',
-      shadow: 'rgba(79, 70, 229, 0.15)',
-    },
-    {
-      label: 'Achats',
-      to: '/achats',
-      description: 'Suivi des dépenses',
-      icon: <PurchasesIcon />,
-      accentBg: '#fdf1f2',
-      accentBorder: '#fbd5d9',
-      accentHover: '#f8bfc5',
-      iconBg: 'rgba(239, 68, 68, 0.12)',
-      iconColor: '#be123c',
-      textColor: '#7f1d1d',
-      shadow: 'rgba(244, 114, 182, 0.15)',
-    },
-    {
-      label: 'Documents',
-      to: '/documents',
-      description: 'Bibliothèque et modèles',
-      icon: <DocumentsIcon />,
-      accentBg: '#f3f9f7',
-      accentBorder: '#cde9dc',
-      accentHover: '#b8e1d1',
-      iconBg: 'rgba(16, 185, 129, 0.12)',
-      iconColor: '#047857',
-      textColor: '#065f46',
-      shadow: 'rgba(45, 212, 191, 0.15)',
+      palette: {
+        light: {
+          accentBg: '#f4f6ff',
+          accentBorder: '#d8dffe',
+          accentHover: '#c3d0fd',
+          iconBg: 'rgba(79, 70, 229, 0.12)',
+          iconColor: '#4338ca',
+          textColor: '#1e1b4b',
+          shadow: 'rgba(79, 70, 229, 0.15)',
+        },
+        dark: {
+          accentBg: 'rgba(67, 56, 202, 0.22)',
+          accentBorder: 'rgba(129, 140, 248, 0.4)',
+          accentHover: 'rgba(129, 140, 248, 0.55)',
+          iconBg: 'rgba(129, 140, 248, 0.24)',
+          iconColor: '#c7d2fe',
+          textColor: '#e0e7ff',
+          shadow: 'rgba(67, 56, 202, 0.45)',
+        },
+      },
     },
     {
       label: 'Leads',
       to: '/lead',
       description: 'Relancer vos prospects',
       icon: <LeadsIcon />,
-      accentBg: '#f8f5ff',
-      accentBorder: '#e0d8fc',
-      accentHover: '#cabcf9',
-      iconBg: 'rgba(124, 58, 237, 0.12)',
-      iconColor: '#6d28d9',
-      textColor: '#4c1d95',
-      shadow: 'rgba(139, 92, 246, 0.18)',
+      palette: {
+        light: {
+          accentBg: '#f8f5ff',
+          accentBorder: '#e0d8fc',
+          accentHover: '#cabcf9',
+          iconBg: 'rgba(124, 58, 237, 0.12)',
+          iconColor: '#6d28d9',
+          textColor: '#4c1d95',
+          shadow: 'rgba(139, 92, 246, 0.18)',
+        },
+        dark: {
+          accentBg: 'rgba(124, 58, 237, 0.22)',
+          accentBorder: 'rgba(167, 139, 250, 0.42)',
+          accentHover: 'rgba(167, 139, 250, 0.6)',
+          iconBg: 'rgba(167, 139, 250, 0.24)',
+          iconColor: '#ddd6fe',
+          textColor: '#ede9fe',
+          shadow: 'rgba(124, 58, 237, 0.45)',
+        },
+      },
     },
     {
       label: 'Clients',
       to: '/clients',
       description: 'Fiches et historiques',
       icon: <ClientsIcon />,
-      accentBg: '#f6f9ff',
-      accentBorder: '#cfdef9',
-      accentHover: '#b9d1f9',
-      iconBg: 'rgba(59, 130, 246, 0.12)',
-      iconColor: '#2563eb',
-      textColor: '#1e3a8a',
-      shadow: 'rgba(59, 130, 246, 0.15)',
+      palette: {
+        light: {
+          accentBg: '#f6f9ff',
+          accentBorder: '#cfdef9',
+          accentHover: '#b9d1f9',
+          iconBg: 'rgba(59, 130, 246, 0.12)',
+          iconColor: '#2563eb',
+          textColor: '#1e3a8a',
+          shadow: 'rgba(59, 130, 246, 0.15)',
+        },
+        dark: {
+          accentBg: 'rgba(37, 99, 235, 0.22)',
+          accentBorder: 'rgba(96, 165, 250, 0.45)',
+          accentHover: 'rgba(96, 165, 250, 0.65)',
+          iconBg: 'rgba(96, 165, 250, 0.25)',
+          iconColor: '#bfdbfe',
+          textColor: '#e0f2fe',
+          shadow: 'rgba(37, 99, 235, 0.45)',
+        },
+      },
     },
     {
       label: 'Planning',
       to: '/planning',
       description: 'Vue hebdomadaire complète',
       icon: <PlanningIcon />,
-      accentBg: '#fff7ed',
-      accentBorder: '#fed7aa',
-      accentHover: '#fdba74',
-      iconBg: 'rgba(249, 115, 22, 0.12)',
-      iconColor: '#ea580c',
-      textColor: '#9a3412',
-      shadow: 'rgba(249, 115, 22, 0.15)',
+      palette: {
+        light: {
+          accentBg: '#fff7ed',
+          accentBorder: '#fed7aa',
+          accentHover: '#fdba74',
+          iconBg: 'rgba(249, 115, 22, 0.12)',
+          iconColor: '#ea580c',
+          textColor: '#9a3412',
+          shadow: 'rgba(249, 115, 22, 0.15)',
+        },
+        dark: {
+          accentBg: 'rgba(249, 115, 22, 0.22)',
+          accentBorder: 'rgba(253, 186, 116, 0.45)',
+          accentHover: 'rgba(253, 186, 116, 0.65)',
+          iconBg: 'rgba(253, 186, 116, 0.24)',
+          iconColor: '#fed7aa',
+          textColor: '#ffedd5',
+          shadow: 'rgba(249, 115, 22, 0.45)',
+        },
+      },
     },
     {
       label: 'Statistiques',
       to: '/stats',
       description: 'Indicateurs détaillés',
       icon: <StatsIcon />,
-      accentBg: '#f4f5f9',
-      accentBorder: '#d6d7df',
-      accentHover: '#c5c7d4',
-      iconBg: 'rgba(107, 114, 128, 0.12)',
-      iconColor: '#374151',
-      textColor: '#111827',
-      shadow: 'rgba(107, 114, 128, 0.12)',
-    },
-    {
-      label: 'Utilisateurs',
-      to: '/parametres?tab=utilisateurs',
-      description: 'Gérer les accès et rôles',
-      icon: <UsersIcon />,
-      accentBg: '#f0f9ff',
-      accentBorder: '#bae6fd',
-      accentHover: '#7dd3fc',
-      iconBg: 'rgba(14, 165, 233, 0.12)',
-      iconColor: '#0ea5e9',
-      textColor: '#0f172a',
-      shadow: 'rgba(14, 165, 233, 0.15)',
+      palette: {
+        light: {
+          accentBg: '#f4f5f9',
+          accentBorder: '#d6d7df',
+          accentHover: '#c5c7d4',
+          iconBg: 'rgba(107, 114, 128, 0.12)',
+          iconColor: '#374151',
+          textColor: '#111827',
+          shadow: 'rgba(107, 114, 128, 0.12)',
+        },
+        dark: {
+          accentBg: 'rgba(148, 163, 184, 0.22)',
+          accentBorder: 'rgba(148, 163, 184, 0.38)',
+          accentHover: 'rgba(203, 213, 225, 0.6)',
+          iconBg: 'rgba(148, 163, 184, 0.24)',
+          iconColor: '#e2e8f0',
+          textColor: '#f8fafc',
+          shadow: 'rgba(30, 41, 59, 0.45)',
+        },
+      },
     },
   ];
 
   const firstName =
     [userProfile?.firstName, userProfile?.lastName].filter(Boolean).join(' ').trim() || 'Wash&Go';
   const todayLabel = format(today, "EEEE d MMMM yyyy", { locale: fr });
-  const quickLinkStyle = (link: (typeof quickLinks)[number]): QuickLinkThemeVars => ({
-    '--ql-bg': link.accentBg,
-    '--ql-border': link.accentBorder,
-    '--ql-border-hover': link.accentHover,
-    '--ql-icon-bg': link.iconBg,
-    '--ql-icon-color': link.iconColor,
-    '--ql-text': link.textColor,
-    '--ql-shadow': link.shadow,
-  });
+  const quickLinkStyle = (link: QuickLinkDefinition): QuickLinkThemeVars => {
+    const palette = theme === 'dark' ? link.palette.dark : link.palette.light;
+    return {
+      '--ql-bg': palette.accentBg,
+      '--ql-border': palette.accentBorder,
+      '--ql-border-hover': palette.accentHover,
+      '--ql-icon-bg': palette.iconBg,
+      '--ql-icon-color': palette.iconColor,
+      '--ql-text': palette.textColor,
+      '--ql-text-rgb': colorToRgbChannels(palette.textColor),
+      '--ql-shadow': palette.shadow,
+    };
+  };
 
   return (
     <div className="dashboard-page space-y-10">
@@ -473,28 +571,6 @@ const DashboardPage = () => {
         </div>
         <div className="dashboard-hero__glow" aria-hidden />
       </header>
-
-      <nav className="dashboard-secondary-bar">
-        <div className="dashboard-secondary-bar__content">
-          <div className="dashboard-secondary-bar__left">
-            <span className="dashboard-secondary-bar__label">Vue d’ensemble</span>
-          </div>
-          <div className="dashboard-secondary-bar__chips">
-            <span className="dashboard-secondary-bar__chip">
-              <span className="dashboard-secondary-bar__chip-value">{weeklyEngagements.length}</span>
-              <span className="dashboard-secondary-bar__chip-label">Interventions planifiées</span>
-            </span>
-            <span className="dashboard-secondary-bar__chip">
-              <span className="dashboard-secondary-bar__chip-value">{leadsToContact.length}</span>
-              <span className="dashboard-secondary-bar__chip-label">Leads à relancer</span>
-            </span>
-            <span className="dashboard-secondary-bar__chip">
-              <span className="dashboard-secondary-bar__chip-value">{quotesToSend.length}</span>
-              <span className="dashboard-secondary-bar__chip-label">Devis à envoyer</span>
-            </span>
-          </div>
-        </div>
-      </nav>
 
       <section className="space-y-5">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">

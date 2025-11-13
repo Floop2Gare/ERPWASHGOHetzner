@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import {
   addDays,
@@ -14,6 +14,8 @@ import {
   startOfWeek,
 } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import clsx from 'clsx';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { useAppData } from '../store/useAppData';
@@ -30,6 +32,21 @@ const parseTimeToMinutes = (time: string) => {
 const formatHourLabel = (hour: number) => `${hour.toString().padStart(2, '0')}h00`;
 
 const slotHeight = 64;
+
+const numberFormatter = new Intl.NumberFormat('fr-FR');
+
+const formatNumber = (value: number) => numberFormatter.format(value);
+
+const userOptions: Array<{ label: string; value: string | null }> = [
+  { label: 'Clément', value: 'clement' },
+  { label: 'Adrien', value: 'adrien' },
+];
+
+const viewOptions: Array<{ label: string; value: 'mois' | 'semaine' | 'jour' }> = [
+  { label: 'Mois', value: 'mois' },
+  { label: 'Semaine', value: 'semaine' },
+  { label: 'Jour', value: 'jour' },
+];
 
 // Démo : ajuster la date et les créneaux de test si besoin pour valider le rendu visuel.
 const planningTestDate = '2025-10-16';
@@ -64,6 +81,29 @@ const getSlotToneClasses = (status: EngagementStatus | undefined) => {
     default:
       return 'border-slate-300 bg-slate-100 text-slate-700 dark:border-slate-600 dark:bg-slate-700/60 dark:text-slate-100';
   }
+};
+
+const getStatusColor = (status: EngagementStatus | undefined): 'blue' | 'green' | 'yellow' | 'red' | 'gray' => {
+  switch (status) {
+    case 'planifié':
+      return 'blue';
+    case 'réalisé':
+      return 'green';
+    case 'envoyé':
+      return 'yellow';
+    case 'annulé':
+      return 'red';
+    default:
+      return 'gray';
+  }
+};
+
+const colorClasses = {
+  blue: 'bg-blue-500',
+  green: 'bg-emerald-500',
+  yellow: 'bg-amber-500',
+  red: 'bg-red-500',
+  gray: 'bg-slate-500',
 };
 
 const PlanningPage = () => {
@@ -255,67 +295,119 @@ const PlanningPage = () => {
     setSelectedDate((value) => addDays(value, delta));
   };
 
+  const weeklySlotCount = useMemo(
+    () => weeklySlots.reduce((total, day) => total + day.slots.length, 0),
+    [weeklySlots]
+  );
+
+  const summaryItems = useMemo(
+    () => [
+      { label: 'Créneaux consolidés', value: formatNumber(effectiveSlots.length) },
+      { label: 'Cette semaine', value: formatNumber(weeklySlotCount) },
+      { label: 'Événements Google', value: formatNumber(googleEvents.length) },
+    ],
+    [effectiveSlots, weeklySlotCount, googleEvents.length]
+  );
+
+  const selectedUserLabel = selectedUser
+    ? userOptions.find((option) => option.value === selectedUser)?.label ?? selectedUser
+    : null;
+
+  const selectedDayEvents = useMemo(() => {
+    return slotsForSelectedDay.map((slot) => {
+      const engagement = slot.engagementId ? engagementsById.get(slot.engagementId) : undefined;
+      const service = engagement ? servicesById.get(engagement.serviceId) : undefined;
+      const client = engagement ? clientsById.get(engagement.clientId) : undefined;
+      const calendarEvent = eventsBySlotId.get(slot.id);
+      const slotStatus =
+        slotStatusOverrides.get(slot.id) ??
+        (engagement
+          ? engagement.status
+          : mapCalendarStatusToEngagementStatus(calendarEvent?.status ?? null));
+      
+      return {
+        id: slot.id,
+        time: slot.start,
+        title: service?.name ?? calendarEvent?.summary ?? 'Prestation',
+        client: client?.name ?? calendarEvent?.location,
+        status: slotStatus,
+        color: getStatusColor(slotStatus),
+        end: slot.end,
+      };
+    });
+  }, [slotsForSelectedDay, engagementsById, servicesById, clientsById, eventsBySlotId, slotStatusOverrides]);
+
+  const monthEventsCount = useMemo(() => {
+    return monthDays.filter((day) => {
+      const key = format(day, 'yyyy-MM-dd');
+      const daySlots = slotsByDate.get(key) ?? [];
+      return daySlots.length > 0 && isSameMonth(day, visibleMonth);
+    }).length;
+  }, [monthDays, slotsByDate, visibleMonth]);
+
+  const goToToday = () => {
+    const today = new Date();
+    setSelectedDate(today);
+    setVisibleMonth(startOfMonth(today));
+  };
+
   return (
-    <div className="space-y-8">
-      <Card
-        title="Planning"
-        description="Vue calendaire consolidée"
-        action={
-          <div className="flex flex-wrap items-center gap-4 text-xs text-slate-600">
-            {/* Sélecteur d'utilisateur */}
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-slate-700">Planning :</span>
-              <div className="flex gap-1">
-                <button
-                  onClick={() => setSelectedUser(null)}
-                  className={`rounded-full border px-3 py-1 font-semibold transition ${
-                    selectedUser === null
-                      ? 'border-primary bg-primary text-white'
-                      : 'border-slate-200 text-slate-600 hover:border-primary hover:text-primary'
-                  }`}
-                >
-                  Tous
-                </button>
-                <button
-                  onClick={() => setSelectedUser('clement')}
-                  className={`rounded-full border px-3 py-1 font-semibold transition ${
-                    selectedUser === 'clement'
-                      ? 'border-primary bg-primary text-white'
-                      : 'border-slate-200 text-slate-600 hover:border-primary hover:text-primary'
-                  }`}
-                >
-                  Clément
-                </button>
-                <button
-                  onClick={() => setSelectedUser('adrien')}
-                  className={`rounded-full border px-3 py-1 font-semibold transition ${
-                    selectedUser === 'adrien'
-                      ? 'border-primary bg-primary text-white'
-                      : 'border-slate-200 text-slate-600 hover:border-primary hover:text-primary'
-                  }`}
-                >
-                  Adrien
-                </button>
-              </div>
-            </div>
-            
-            {/* Sélecteur de vue */}
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-slate-700">Vue :</span>
-              <div className="flex gap-1">
-                {[
-                  { label: 'Mois', value: 'mois' },
-                  { label: 'Semaine', value: 'semaine' },
-                  { label: 'Jour', value: 'jour' },
-                ].map((option) => (
+    <div className="planning-page space-y-10">
+      <header className="dashboard-hero">
+        <div className="dashboard-hero__content">
+          <div className="dashboard-hero__intro">
+            <p className="dashboard-hero__eyebrow">Planning opérationnel</p>
+            <h1 className="dashboard-hero__title">Pilotez vos interventions</h1>
+            <p className="dashboard-hero__subtitle">
+              Synchronisez vos créneaux avec Google Agenda et passez d'une vue mensuelle à une vue détaillée en un coup d'œil.
+            </p>
+          </div>
+        </div>
+        <div className="dashboard-hero__glow" aria-hidden />
+      </header>
+
+      <div className="mx-auto max-w-[95rem] px-6 md:px-12">
+        {/* Contrôles */}
+        <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center space-x-2">
+              <span className="text-sm text-slate-600">Vue:</span>
+              <div className="inline-flex rounded-xl bg-white shadow-sm">
+                {viewOptions.map((option) => (
                   <button
                     key={option.value}
-                    onClick={() => setView(option.value as typeof view)}
-                    className={`rounded-full border px-3 py-1 font-semibold transition ${
+                    type="button"
+                    onClick={() => setView(option.value)}
+                    className={clsx(
+                      'px-4 py-2 text-sm font-medium transition-colors',
+                      option.value === viewOptions[0].value ? 'rounded-l-xl' : '',
+                      option.value === viewOptions[viewOptions.length - 1].value ? 'rounded-r-xl' : '',
                       view === option.value
-                        ? 'border-slate-900 bg-slate-900 text-white'
-                        : 'border-slate-200 text-slate-600 hover:border-primary hover:text-primary'
-                    }`}
+                        ? 'bg-blue-500 text-white'
+                        : 'text-slate-700 hover:bg-slate-50'
+                    )}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center space-x-2">
+              <span className="text-sm text-slate-600">Planning:</span>
+              <div className="inline-flex rounded-xl bg-white shadow-sm">
+                {userOptions.map((option, index) => (
+                  <button
+                    key={option.value ?? 'all'}
+                    type="button"
+                    onClick={() => setSelectedUser(option.value)}
+                    className={clsx(
+                      'px-4 py-2 text-sm font-medium transition-colors',
+                      index === 0 ? 'rounded-l-xl' : '',
+                      index === userOptions.length - 1 ? 'rounded-r-xl' : '',
+                      selectedUser === option.value
+                        ? 'bg-blue-500 text-white'
+                        : 'text-slate-700 hover:bg-slate-50'
+                    )}
                   >
                     {option.label}
                   </button>
@@ -323,354 +415,387 @@ const PlanningPage = () => {
               </div>
             </div>
           </div>
-        }
-      >
-        <div className="mb-6 flex flex-col gap-3 text-xs text-slate-500 dark:text-slate-400 md:flex-row md:items-center md:justify-between">
-          <div className="flex flex-col gap-1">
-            <span>
-              {calendarLoading
-                ? 'Synchronisation Google Agenda en cours…'
-                : googleSlots.length > 0
-                  ? `Synchronisé avec Google Agenda${
-                      selectedUser 
-                        ? ` (Planning ${selectedUser === 'clement' ? 'Clément' : 'Adrien'})`
-                        : ' (Tous les plannings)'
-                    }${
-                      calendarLastSyncLabel ? ` · ${calendarLastSyncLabel}` : ''
-                    }`
-                  : 'Aucune donnée Google Agenda reçue'}
-            </span>
-            {calendarError ? (
-              <span className="font-semibold text-rose-600 dark:text-rose-400">{calendarError}</span>
-            ) : null}
-            {!calendarError && calendarWarnings.length > 0 ? (
-              <ul className="space-y-1 text-[11px]">
-                {calendarWarnings.map((warning) => (
-                  <li key={warning} className="flex items-start gap-1">
-                    <span aria-hidden="true">•</span>
-                    <span>{warning}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </div>
-          <div className="flex items-center gap-2 self-start md:self-auto">
-            <Button
-              type="button"
-              size="xs"
-              variant="secondary"
-              disabled={calendarLoading}
-              onClick={refreshCalendar}
-            >
-              {calendarLoading ? 'Actualisation…' : 'Rafraîchir'}
-            </Button>
-            {googleEvents.length > 0 ? (
-              <span className="rounded-full border border-primary/30 bg-primary/5 px-3 py-1 text-[11px] font-semibold text-primary">
-                {googleEvents.length} événement{googleEvents.length > 1 ? 's' : ''} 
-                {selectedUser 
-                  ? ` (${selectedUser === 'clement' ? 'Clément' : 'Adrien'})`
-                  : ' (Tous)'
-                }
-              </span>
-            ) : null}
-          </div>
+          <button
+            onClick={goToToday}
+            className="rounded-xl bg-white px-6 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-all hover:shadow-md"
+          >
+            Aujourd'hui
+          </button>
         </div>
-        {view === 'mois' && (
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-600">
-              <div className="font-semibold text-slate-900">{monthLabel}</div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Button variant="ghost" onClick={() => shiftMonth(-1)}>
-                  Mois précédent
-                </Button>
-                <Button variant="ghost" onClick={() => shiftMonth(1)}>
-                  Mois suivant
-                </Button>
-                <Button variant="secondary" onClick={() => setVisibleMonth(startOfMonth(new Date()))}>
-                  Aujourd’hui
-                </Button>
-              </div>
-            </div>
-            <div className="overflow-x-auto">
-              <div className="min-w-[560px] space-y-2">
-                <div className="grid grid-cols-7 gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+
+        <div className="grid gap-8 lg:grid-cols-[1.5fr_320px]">
+          {/* Calendrier principal */}
+          <div className="rounded-3xl bg-white p-8 shadow-xl shadow-slate-200/50">
+            {view === 'mois' && (
+              <>
+                {/* Navigation du mois */}
+                <div className="mb-6 flex items-center justify-between">
+                  <h2 className="text-2xl font-bold text-slate-900">{monthLabel}</h2>
+
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => shiftMonth(-1)}
+                      className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-700 transition-all hover:bg-slate-200"
+                    >
+                      <ChevronLeft className="h-5 w-5" />
+                    </button>
+                    <button
+                      onClick={() => shiftMonth(1)}
+                      className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-700 transition-all hover:bg-slate-200"
+                    >
+                      <ChevronRight className="h-5 w-5" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Jours de la semaine */}
+                <div className="mb-3 grid grid-cols-7 gap-2">
                   {['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'].map((day) => (
-                    <div key={day} className="text-center">
+                    <div key={day} className="py-2 text-center text-xs font-semibold uppercase tracking-wider text-slate-500">
                       {day}
                     </div>
                   ))}
                 </div>
-                <div className="grid grid-cols-7 gap-1">
-                  {monthDays.map((day) => {
+
+                {/* Grille des jours */}
+                <div className="grid grid-cols-7 gap-2">
+                  {monthDays.map((day, idx) => {
                     const key = format(day, 'yyyy-MM-dd');
                     const daySlots = slotsByDate.get(key) ?? [];
                     const sortedSlots = [...daySlots].sort(
                       (a, b) => parseTimeToMinutes(a.start) - parseTimeToMinutes(b.start)
                     );
-                    const visibleSlots = sortedSlots.slice(0, 3);
-                    const hiddenCount = sortedSlots.length - visibleSlots.length;
-                    const isToday = isSameDay(day, new Date());
+                    const hasEvents = sortedSlots.length > 0;
+                    const isTodayDate = isSameDay(day, new Date());
+                    const isSelectedDate = isSameDay(day, selectedDate);
                     const inMonth = isSameMonth(day, visibleMonth);
-                    const hasSlots = sortedSlots.length > 0;
+
+                    // Obtenir les couleurs des événements pour les indicateurs
+                    const eventColors = sortedSlots.slice(0, 3).map((slot) => {
+                      const engagement = slot.engagementId ? engagementsById.get(slot.engagementId) : undefined;
+                      const calendarEvent = eventsBySlotId.get(slot.id);
+                      const slotStatus =
+                        slotStatusOverrides.get(slot.id) ??
+                        (engagement
+                          ? engagement.status
+                          : mapCalendarStatusToEngagementStatus(calendarEvent?.status ?? null));
+                      return getStatusColor(slotStatus);
+                    });
+
                     return (
                       <button
-                        key={key}
-                        type="button"
-                        onClick={() => handleDaySelection(day)}
-                        className={`group flex h-32 flex-col rounded-soft border px-3 py-2 text-left text-xs transition focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 ${
-                          isToday ? 'border-primary bg-primary/5 text-primary' : 'border-border bg-surface text-text'
-                        } ${!inMonth ? 'opacity-60' : ''} hover:border-primary hover:bg-primary/5`}
+                        key={idx}
+                        onClick={() => {
+                          setSelectedDate(day);
+                          handleDaySelection(day);
+                        }}
+                        className={clsx(
+                          'relative aspect-square rounded-2xl p-2 text-sm font-medium transition-all',
+                          !inMonth ? 'text-slate-300' : 'text-slate-900',
+                          isTodayDate ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/30' : '',
+                          isSelectedDate && !isTodayDate ? 'bg-slate-100 ring-2 ring-blue-500' : '',
+                          !isTodayDate && !isSelectedDate ? 'hover:bg-slate-50' : ''
+                        )}
                       >
-                        <div className="flex items-start justify-between gap-1">
-                          <span className="text-xs font-semibold tracking-wide">{format(day, 'd')}</span>
-                          {isToday && (
-                            <span className="rounded-full border border-primary/40 px-2 py-[2px] text-[10px] font-medium uppercase tracking-[0.22em] text-primary">
-                              Aujourd’hui
-                            </span>
-                          )}
-                        </div>
-                        <div className="mt-2 flex-1 space-y-1 overflow-hidden">
-                          {hasSlots ? (
-                            <>
-                              {visibleSlots.map((slot) => {
-                                const engagement = slot.engagementId
-                                  ? engagementsById.get(slot.engagementId)
-                                  : undefined;
-                                const service = engagement ? servicesById.get(engagement.serviceId) : undefined;
-                                const client = engagement ? clientsById.get(engagement.clientId) : undefined;
-                                const calendarEvent = eventsBySlotId.get(slot.id);
-                                const optionLabels =
-                                  engagement && service
-                                    ? engagement.optionIds
-                                        .map((id) => service.options.find((option) => option.id === id)?.label)
-                                        .filter((label): label is string => Boolean(label))
-                                    : [];
-                                const primaryOption = optionLabels[0];
-                                const additionalOptions = Math.max(optionLabels.length - 1, 0);
-                                const baseServiceLabel = service?.name ?? calendarEvent?.summary ?? 'Prestation';
-                                const prestationLabel =
-                                  primaryOption
-                                    ? `${primaryOption}${additionalOptions > 0 ? ` (+${additionalOptions})` : ''}`
-                                    : baseServiceLabel;
-                                const slotStatus =
-                                  slotStatusOverrides.get(slot.id) ??
-                                  (engagement
-                                    ? engagement.status
-                                    : mapCalendarStatusToEngagementStatus(calendarEvent?.status ?? null));
-                                const toneClasses = getSlotToneClasses(slotStatus);
-                                const tooltipParts = [
-                                  baseServiceLabel,
-                                  client?.name ?? calendarEvent?.location,
-                                  `${slot.start} – ${slot.end}`,
-                                ];
-                                if (calendarEvent?.description) {
-                                  tooltipParts.push(calendarEvent.description);
-                                }
-                                const filteredTooltip = tooltipParts.filter(Boolean) as string[];
-                                return (
-                                  <div
-                                    key={slot.id}
-                                    className={`flex items-center gap-2 rounded-md border px-2 py-1 text-[11px] leading-tight ${toneClasses}`}
-                                    title={filteredTooltip.join(' • ')}
-                                  >
-                                    <span className="whitespace-nowrap font-semibold">{slot.start}</span>
-                                    <span className="truncate font-medium">{prestationLabel}</span>
-                                  </div>
-                                );
-                              })}
-                              {hiddenCount > 0 && (
-                                <span className="block truncate text-[11px] font-medium text-primary">
-                                  +{hiddenCount} prestation(s)
-                                </span>
-                              )}
-                            </>
-                          ) : (
-                            <span className="block text-[11px] text-muted">Aucune prestation</span>
-                          )}
-                        </div>
+                        <span className="block">{format(day, 'd')}</span>
+
+                        {/* Indicateurs d'événements */}
+                        {hasEvents && (
+                          <div className="absolute bottom-1.5 left-1/2 flex -translate-x-1/2 gap-1">
+                            {eventColors.map((color, i) => (
+                              <div
+                                key={i}
+                                className={clsx(
+                                  'h-1 w-1 rounded-full',
+                                  isTodayDate ? 'bg-white' : colorClasses[color]
+                                )}
+                              />
+                            ))}
+                          </div>
+                        )}
                       </button>
                     );
                   })}
                 </div>
-              </div>
-            </div>
-          </div>
-        )}
+              </>
+            )}
 
-        {view === 'semaine' && (
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-600">
-              <div className="font-semibold text-slate-900">
-                Semaine du {format(weekStart, 'd MMMM', { locale: fr })}
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Button variant="ghost" onClick={() => shiftWeek(-1)}>
-                  Semaine précédente
-                </Button>
-                <Button variant="ghost" onClick={() => shiftWeek(1)}>
-                  Semaine suivante
-                </Button>
-                <Button variant="secondary" onClick={() => setSelectedDate(new Date())}>
-                  Aujourd’hui
-                </Button>
-              </div>
-            </div>
-            <div className="overflow-x-auto">
-              <div className="min-w-[960px] rounded-soft border border-slate-200 bg-white">
-                <div className="grid" style={{ gridTemplateColumns: `80px repeat(7, minmax(140px, 1fr))` }}>
-                  <div className="h-12 border-b border-r border-slate-200" />
-                  {weeklySlots.map(({ date, slots: daySlots }) => (
-                    <div
-                      key={date.toISOString()}
-                      className="flex h-12 items-center justify-between border-b border-r border-slate-200 px-3 text-xs font-semibold text-slate-700"
+            {view === 'semaine' && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-2xl font-bold text-slate-900">
+                    Semaine du {format(weekStart, 'd MMMM', { locale: fr })}
+                  </h2>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => shiftWeek(-1)}
+                      className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-700 transition-all hover:bg-slate-200"
                     >
-                      <span>{format(date, 'EEEE d MMM', { locale: fr })}</span>
-                      <span className="text-[11px] font-normal uppercase tracking-wide text-slate-400">
-                        {daySlots.length} créneau(x)
-                      </span>
-                    </div>
-                  ))}
-                  <div className="col-span-8">
+                      <ChevronLeft className="h-5 w-5" />
+                    </button>
+                    <button
+                      onClick={() => shiftWeek(1)}
+                      className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-700 transition-all hover:bg-slate-200"
+                    >
+                      <ChevronRight className="h-5 w-5" />
+                    </button>
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <div className="min-w-[960px] rounded-lg border border-gray-200 bg-white">
                     <div className="grid" style={{ gridTemplateColumns: `80px repeat(7, minmax(140px, 1fr))` }}>
-                      <div>
-                        {hours.map((hour) => (
-                          <div
-                            key={`label-${hour}`}
-                            className="flex h-[64px] items-start border-b border-r border-slate-200 px-2 pt-3 text-xs text-slate-400"
-                          >
-                            {formatHourLabel(hour)}
+                      <div className="h-12 border-b border-r border-gray-200" />
+                      {weeklySlots.map(({ date, slots: daySlots }) => (
+                        <div
+                          key={date.toISOString()}
+                          className={clsx(
+                            'flex h-12 items-center justify-center border-b border-r border-gray-200 px-3',
+                            isSameDay(date, new Date()) ? 'bg-blue-50' : 'bg-gray-50'
+                          )}
+                        >
+                          <div className="text-center">
+                            <div className="text-xs font-medium text-gray-700">
+                              {format(date, 'EEE', { locale: fr })}
+                            </div>
+                            <div className={clsx(
+                              'text-lg font-light mt-1',
+                              isSameDay(date, new Date()) ? 'text-blue-600' : 'text-gray-900'
+                            )}>
+                              {format(date, 'd')}
+                            </div>
                           </div>
-                        ))}
-                      </div>
-                      {weeklySlots.map(({ key, slots: daySlots }) => {
-                        const columnHeight = Math.max(hours.length * slotHeight, slotHeight);
-                        return (
-                          <div key={key} className="relative border-b border-r border-slate-200" style={{ height: columnHeight }}>
-                            {hours.map((_, index) => (
+                        </div>
+                      ))}
+                      <div className="col-span-8">
+                        <div className="grid" style={{ gridTemplateColumns: `80px repeat(7, minmax(140px, 1fr))` }}>
+                          <div>
+                            {hours.map((hour) => (
                               <div
-                                key={`${key}-bg-${index}`}
-                                className="absolute left-0 right-0 border-b border-slate-100"
-                                style={{ top: (index + 1) * slotHeight }}
-                              />
+                                key={`label-${hour}`}
+                                className="flex h-[64px] items-start border-b border-r border-gray-200 px-2 pt-3 text-xs text-gray-500"
+                              >
+                                {formatHourLabel(hour)}
+                              </div>
                             ))}
-                            {daySlots.map((slot) => {
-                              const engagement = engagements.find((item) => item.id === slot.engagementId);
-                              const client = clients.find((item) => item.id === engagement?.clientId);
-                              const service = services.find((item) => item.id === engagement?.serviceId);
-                              const calendarEvent = eventsBySlotId.get(slot.id);
-                              const startMinutes = parseTimeToMinutes(slot.start);
-                              const endMinutes = parseTimeToMinutes(slot.end);
-                              const offsetMinutes = hourBounds.minHour * 60;
-                              const top = ((startMinutes - offsetMinutes) / 60) * slotHeight;
-                              const height = Math.max(((endMinutes - startMinutes) / 60) * slotHeight, slotHeight / 1.5);
-                              const statusOverride = slotStatusOverrides.get(slot.id);
-                              const slotStatus =
-                                statusOverride ??
-                                (engagement
-                                  ? engagement.status
-                                  : mapCalendarStatusToEngagementStatus(calendarEvent?.status ?? null));
-                              const toneClasses = getSlotToneClasses(slotStatus);
-                              const baseLabel = service?.name ?? calendarEvent?.summary ?? `Créneau ${BRAND_NAME}`;
-                              const detailLabel = client?.name ?? calendarEvent?.location;
-                              const labelParts = [baseLabel, detailLabel].filter(Boolean) as string[];
-                              const slotLabel = labelParts.length > 0 ? labelParts.join(' – ') : baseLabel;
-                              const titleParts = [slotLabel, `${slot.start} – ${slot.end}`];
-                              if (calendarEvent?.description) {
-                                titleParts.push(calendarEvent.description);
-                              }
-                              const slotTitle = titleParts.join(' • ');
-                              return (
-                                <div
-                                  key={slot.id}
-                                  className={`absolute left-2 right-2 flex h-fit flex-col justify-center gap-1 overflow-hidden rounded-soft border px-3 py-2 text-[11px] leading-tight shadow-sm transition ${toneClasses}`}
-                                  style={{ top, height }}
-                                  title={slotTitle}
-                                >
-                                  <span className="truncate font-semibold">{slotLabel}</span>
-                                  <span className="text-[10px] font-medium uppercase tracking-[0.3em] opacity-80">
-                                    {slot.start} – {slot.end}
-                                  </span>
-                                </div>
-                              );
-                            })}
                           </div>
-                        );
-                      })}
+                          {weeklySlots.map(({ key, slots: daySlots }) => {
+                            const columnHeight = Math.max(hours.length * slotHeight, slotHeight);
+                            return (
+                              <div key={key} className="relative border-b border-r border-gray-200" style={{ height: columnHeight }}>
+                                {hours.map((_, index) => (
+                                  <div
+                                    key={`${key}-bg-${index}`}
+                                    className="absolute left-0 right-0 border-b border-gray-100"
+                                    style={{ top: (index + 1) * slotHeight }}
+                                  />
+                                ))}
+                                {daySlots.map((slot) => {
+                                  const engagement = engagements.find((item) => item.id === slot.engagementId);
+                                  const client = clients.find((item) => item.id === engagement?.clientId);
+                                  const service = services.find((item) => item.id === engagement?.serviceId);
+                                  const calendarEvent = eventsBySlotId.get(slot.id);
+                                  const startMinutes = parseTimeToMinutes(slot.start);
+                                  const endMinutes = parseTimeToMinutes(slot.end);
+                                  const offsetMinutes = hourBounds.minHour * 60;
+                                  const top = ((startMinutes - offsetMinutes) / 60) * slotHeight;
+                                  const height = Math.max(((endMinutes - startMinutes) / 60) * slotHeight, slotHeight / 1.5);
+                                  const statusOverride = slotStatusOverrides.get(slot.id);
+                                  const slotStatus =
+                                    statusOverride ??
+                                    (engagement
+                                      ? engagement.status
+                                      : mapCalendarStatusToEngagementStatus(calendarEvent?.status ?? null));
+
+                                  const statusColor = {
+                                    'planifié': 'bg-blue-100 text-blue-800 border-blue-200',
+                                    'réalisé': 'bg-green-100 text-green-800 border-green-200',
+                                    'envoyé': 'bg-yellow-100 text-yellow-800 border-yellow-200',
+                                    'annulé': 'bg-red-100 text-red-800 border-red-200',
+                                  }[slotStatus] || 'bg-gray-100 text-gray-800 border-gray-200';
+
+                                  const baseLabel = service?.name ?? calendarEvent?.summary ?? `Créneau ${BRAND_NAME}`;
+                                  const detailLabel = client?.name ?? calendarEvent?.location;
+                                  const labelParts = [baseLabel, detailLabel].filter(Boolean) as string[];
+                                  const slotLabel = labelParts.length > 0 ? labelParts.join(' – ') : baseLabel;
+                                  const titleParts = [slotLabel, `${slot.start} – ${slot.end}`];
+                                  if (calendarEvent?.description) {
+                                    titleParts.push(calendarEvent.description);
+                                  }
+                                  const slotTitle = titleParts.join(' • ');
+                                  return (
+                                    <div
+                                      key={slot.id}
+                                      className={`absolute left-2 right-2 flex h-fit flex-col justify-center gap-1 overflow-hidden rounded-lg border px-3 py-2 text-[11px] leading-tight shadow-sm transition ${statusColor}`}
+                                      style={{ top, height }}
+                                      title={slotTitle}
+                                    >
+                                      <span className="truncate font-semibold">{slotLabel}</span>
+                                      <span className="text-[10px] font-medium uppercase tracking-[0.3em] opacity-75">
+                                        {slot.start} – {slot.end}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
-            </div>
-          </div>
-        )}
+            )}
 
-        {view === 'jour' && (
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-600">
-              <div className="font-semibold text-slate-900">
-                {format(selectedDate, 'EEEE d MMMM yyyy', { locale: fr })}
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Button variant="ghost" onClick={() => shiftDay(-1)}>
-                  Jour précédent
-                </Button>
-                <Button variant="ghost" onClick={() => shiftDay(1)}>
-                  Jour suivant
-                </Button>
-                <Button variant="secondary" onClick={() => setSelectedDate(new Date())}>
-                  Aujourd’hui
-                </Button>
-              </div>
-            </div>
-            <div className="space-y-3">
-              {slotsForSelectedDay.length > 0 ? (
-                slotsForSelectedDay.map((slot) => {
-                  const engagement = engagements.find((item) => item.id === slot.engagementId);
-                  const client = clients.find((item) => item.id === engagement?.clientId);
-                  const service = services.find((item) => item.id === engagement?.serviceId);
-                  const statusOverride = slotStatusOverrides.get(slot.id);
-                  const calendarEvent = eventsBySlotId.get(slot.id);
-                  const slotStatus =
-                    statusOverride ??
-                    (engagement
-                      ? engagement.status
-                      : mapCalendarStatusToEngagementStatus(calendarEvent?.status ?? null));
-                  const toneClasses = getSlotToneClasses(slotStatus);
-                  const baseLabel = service?.name ?? calendarEvent?.summary ?? `Créneau ${BRAND_NAME}`;
-                  const detailLabel = client?.name ?? calendarEvent?.location;
-                  const labelParts = [baseLabel, detailLabel].filter(Boolean) as string[];
-                  const slotLabel = labelParts.length > 0 ? labelParts.join(' – ') : baseLabel;
-                  const titleParts = [slotLabel, `${slot.start} – ${slot.end}`];
-                  if (calendarEvent?.description) {
-                    titleParts.push(calendarEvent.description);
-                  }
-                  const slotTitle = titleParts.join(' • ');
-                  return (
-                    <div
-                      key={slot.id}
-                      className={`flex flex-col gap-2 rounded-soft border px-4 py-3 text-sm leading-tight md:flex-row md:items-center md:justify-between ${toneClasses}`}
-                      title={slotTitle}
+            {view === 'jour' && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-2xl font-bold text-slate-900">
+                    {format(selectedDate, 'EEEE d MMMM yyyy', { locale: fr })}
+                  </h2>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => shiftDay(-1)}
+                      className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-700 transition-all hover:bg-slate-200"
                     >
-                      <div className="space-y-1">
-                        <p className="text-sm font-semibold md:text-base">{slotLabel}</p>
-                        <p className="text-[11px] font-medium uppercase tracking-[0.3em] opacity-80">
-                          {slot.start} – {slot.end}
-                        </p>
-                      </div>
-                      <div className="text-left text-[12px] md:text-right">
-                        <p className="font-medium">{client?.name ?? calendarEvent?.location ?? 'Client à confirmer'}</p>
-                        <p className="text-[11px] opacity-80">{new Date(slot.date).toLocaleDateString('fr-FR')}</p>
+                      <ChevronLeft className="h-5 w-5" />
+                    </button>
+                    <button
+                      onClick={() => shiftDay(1)}
+                      className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-700 transition-all hover:bg-slate-200"
+                    >
+                      <ChevronRight className="h-5 w-5" />
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  {slotsForSelectedDay.length > 0 ? (
+                    slotsForSelectedDay.map((slot) => {
+                      const engagement = engagements.find((item) => item.id === slot.engagementId);
+                      const client = clients.find((item) => item.id === engagement?.clientId);
+                      const service = services.find((item) => item.id === engagement?.serviceId);
+                      const statusOverride = slotStatusOverrides.get(slot.id);
+                      const calendarEvent = eventsBySlotId.get(slot.id);
+                      const slotStatus =
+                        statusOverride ??
+                        (engagement
+                          ? engagement.status
+                          : mapCalendarStatusToEngagementStatus(calendarEvent?.status ?? null));
+
+                      const statusColor = {
+                        'planifié': 'bg-blue-50 border-blue-200 text-blue-800',
+                        'réalisé': 'bg-green-50 border-green-200 text-green-800',
+                        'envoyé': 'bg-yellow-50 border-yellow-200 text-yellow-800',
+                        'annulé': 'bg-red-50 border-red-200 text-red-800',
+                      }[slotStatus] || 'bg-gray-50 border-gray-200 text-gray-800';
+
+                      const baseLabel = service?.name ?? calendarEvent?.summary ?? `Créneau ${BRAND_NAME}`;
+                      const detailLabel = client?.name ?? calendarEvent?.location;
+
+                      return (
+                        <div
+                          key={slot.id}
+                          className={`p-4 rounded-lg border ${statusColor}`}
+                        >
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <h3 className="font-medium text-lg">{baseLabel}</h3>
+                              <p className="text-sm mt-1 opacity-75">{detailLabel ?? 'Client à confirmer'}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-sm font-medium">{slot.start} – {slot.end}</p>
+                              <p className="text-xs mt-1 opacity-75">{new Date(slot.date).toLocaleDateString('fr-FR')}</p>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="text-center py-12">
+                      <div className="text-gray-400 text-lg font-light">Aucun créneau planifié pour cette journée</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Sidebar - Événements du jour */}
+          <div className="rounded-3xl bg-white p-8 shadow-xl shadow-slate-200/50">
+            <h3 className="mb-4 text-lg font-bold text-slate-900">
+              {format(selectedDate, 'EEEE d MMMM yyyy', { locale: fr })}
+            </h3>
+
+            {selectedDayEvents.length > 0 ? (
+              <div className="space-y-3">
+                {selectedDayEvents.map((event) => (
+                  <div
+                    key={event.id}
+                    className="group rounded-2xl border border-slate-100 p-4 transition-all hover:border-slate-200 hover:shadow-md"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className={clsx('mt-0.5 h-3 w-3 rounded-full', colorClasses[event.color])} />
+                      <div className="flex-1">
+                        <div className="text-xs font-semibold text-slate-500">{event.time} – {event.end}</div>
+                        <div className="mt-1 font-semibold text-slate-900">{event.title}</div>
+                        {event.client && (
+                          <div className="mt-1 text-xs text-slate-500">{event.client}</div>
+                        )}
                       </div>
                     </div>
-                  );
-                })
-              ) : (
-                <p className="text-sm text-slate-500">Aucun créneau planifié pour cette journée.</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex h-40 items-center justify-center rounded-2xl bg-slate-50">
+                <p className="text-sm text-slate-400">Aucun événement</p>
+              </div>
+            )}
+
+            {/* Statistiques rapides */}
+            <div className="mt-6 space-y-3 border-t border-slate-100 pt-6">
+              <div className="flex items-center justify-between rounded-xl bg-blue-50 p-3">
+                <span className="text-sm font-medium text-blue-900">Ce mois</span>
+                <span className="text-lg font-bold text-blue-600">{monthEventsCount}</span>
+              </div>
+
+              <div className="flex items-center justify-between rounded-xl bg-emerald-50 p-3">
+                <span className="text-sm font-medium text-emerald-900">Total créneaux</span>
+                <span className="text-lg font-bold text-emerald-600">{formatNumber(effectiveSlots.length)}</span>
+              </div>
+
+              {googleEvents.length > 0 && (
+                <div className="flex items-center justify-between rounded-xl bg-purple-50 p-3">
+                  <span className="text-sm font-medium text-purple-900">Événements Google</span>
+                  <span className="text-lg font-bold text-purple-600">{formatNumber(googleEvents.length)}</span>
+                </div>
               )}
             </div>
+
+            {/* Informations de synchronisation */}
+            {calendarLoading || calendarError || calendarWarnings.length > 0 ? (
+              <div className="mt-6 space-y-2 border-t border-slate-100 pt-6">
+                {calendarLoading && (
+                  <div className="text-xs text-slate-500">Synchronisation Google Agenda en cours…</div>
+                )}
+                {calendarError && (
+                  <div className="text-xs text-red-600">{calendarError}</div>
+                )}
+                {!calendarError && calendarWarnings.length > 0 && (
+                  <div className="space-y-1">
+                    {calendarWarnings.map((warning) => (
+                      <div key={warning} className="text-xs text-amber-600">• {warning}</div>
+                    ))}
+                  </div>
+                )}
+                {calendarLastSyncLabel && !calendarLoading && (
+                  <div className="text-xs text-slate-400">Dernière sync: {calendarLastSyncLabel}</div>
+                )}
+              </div>
+            ) : null}
           </div>
-        )}
-      </Card>
+        </div>
+      </div>
     </div>
   );
 };

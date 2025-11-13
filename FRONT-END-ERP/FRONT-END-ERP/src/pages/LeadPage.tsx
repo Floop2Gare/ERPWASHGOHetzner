@@ -1,10 +1,12 @@
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
 
+import * as Popover from '@radix-ui/react-popover';
+
 import { Button } from '../components/Button';
 import { Card } from '../components/Card';
-import { Table } from '../components/Table';
 import { RowActionButton } from '../components/RowActionButton';
 import {
   IconConvert,
@@ -30,6 +32,8 @@ import {
   SupportType,
 } from '../store/useAppData';
 import { openEmailComposer } from '../lib/email';
+import { normalisePhone } from '../lib/phone';
+import { Filter, Download, X, Search, Target, TrendingUp, Users, Flame } from 'lucide-react';
 
 const pipelineStatuses: LeadStatus[] = ['Nouveau', 'À contacter', 'En cours', 'Devis envoyé', 'Gagné', 'Perdu'];
 const supportTypes: SupportType[] = ['Voiture', 'Canapé', 'Textile'];
@@ -97,8 +101,6 @@ const buildFormState = (
   supportDetail: lead?.supportDetail ?? '',
 });
 
-const normalisePhone = (value: string) => value.replace(/\s+/g, '').trim();
-
 const statusTone: Record<LeadStatus, string> = {
   Nouveau: 'border-primary/30 text-primary',
   'À contacter': 'border-slate-300 text-slate-700',
@@ -107,6 +109,112 @@ const statusTone: Record<LeadStatus, string> = {
   Gagné: 'border-emerald-200 text-emerald-600',
   Perdu: 'border-rose-200 text-rose-600',
 };
+
+const leadStatusConfig: Record<LeadStatus, { label: string; color: string }> = {
+  Nouveau: {
+    label: 'Nouveau',
+    color: 'bg-blue-200 text-blue-800 border border-blue-300 shadow-[0_1px_0_rgba(59,130,246,0.35)]',
+  },
+  'À contacter': {
+    label: 'À contacter',
+    color: 'bg-slate-200 text-slate-700 border border-slate-300 shadow-[0_1px_0_rgba(148,163,184,0.35)]',
+  },
+  'En cours': {
+    label: 'En cours',
+    color: 'bg-sky-200 text-sky-800 border border-sky-300 shadow-[0_1px_0_rgba(14,165,233,0.35)]',
+  },
+  'Devis envoyé': {
+    label: 'Devis envoyé',
+    color: 'bg-amber-200 text-amber-800 border border-amber-300 shadow-[0_1px_0_rgba(245,158,11,0.35)]',
+  },
+  Gagné: {
+    label: 'Gagné',
+    color: 'bg-emerald-200 text-emerald-800 border border-emerald-300 shadow-[0_1px_0_rgba(16,185,129,0.35)]',
+  },
+  Perdu: {
+    label: 'Perdu',
+    color: 'bg-rose-200 text-rose-800 border border-rose-300 shadow-[0_1px_0_rgba(244,63,94,0.35)]',
+  },
+};
+
+const getLeadInitials = (company: string, contact: string) => {
+  if (company) {
+    const parts = company.split(' ').filter(Boolean);
+    if (parts.length >= 2) {
+      return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase();
+    }
+    return company.slice(0, 2).toUpperCase();
+  }
+  if (contact) {
+    const parts = contact.split(' ').filter(Boolean);
+    if (parts.length >= 2) {
+      return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase();
+    }
+    return contact.slice(0, 2).toUpperCase();
+  }
+  return '??';
+};
+
+type PipelineStatusTheme = {
+  accent: string;
+  background: string;
+  border: string;
+  chip: string;
+  shadow: string;
+};
+
+const pipelineStatusThemes: Record<LeadStatus, PipelineStatusTheme> = {
+  Nouveau: {
+    accent: '#2563eb',
+    background: 'linear-gradient(135deg, rgba(37,99,235,0.14), rgba(59,130,246,0.06))',
+    border: 'rgba(37,99,235,0.22)',
+    chip: 'rgba(37,99,235,0.12)',
+    shadow: '0 14px 28px rgba(37, 99, 235, 0.16)',
+  },
+  'À contacter': {
+    accent: '#7c3aed',
+    background: 'linear-gradient(135deg, rgba(124,58,237,0.16), rgba(79,70,229,0.08))',
+    border: 'rgba(124,58,237,0.24)',
+    chip: 'rgba(124,58,237,0.14)',
+    shadow: '0 14px 28px rgba(124, 58, 237, 0.18)',
+  },
+  'En cours': {
+    accent: '#0ea5e9',
+    background: 'linear-gradient(135deg, rgba(14,165,233,0.18), rgba(56,189,248,0.08))',
+    border: 'rgba(14,165,233,0.20)',
+    chip: 'rgba(14,165,233,0.12)',
+    shadow: '0 14px 30px rgba(14, 165, 233, 0.16)',
+  },
+  'Devis envoyé': {
+    accent: '#f59e0b',
+    background: 'linear-gradient(135deg, rgba(245,158,11,0.18), rgba(249,115,22,0.06))',
+    border: 'rgba(245,158,11,0.22)',
+    chip: 'rgba(245,158,11,0.14)',
+    shadow: '0 14px 28px rgba(245, 158, 11, 0.18)',
+  },
+  Gagné: {
+    accent: '#10b981',
+    background: 'linear-gradient(135deg, rgba(16,185,129,0.18), rgba(134,239,172,0.08))',
+    border: 'rgba(16,185,129,0.22)',
+    chip: 'rgba(16,185,129,0.12)',
+    shadow: '0 14px 30px rgba(16, 185, 129, 0.18)',
+  },
+  Perdu: {
+    accent: '#f43f5e',
+    background: 'linear-gradient(135deg, rgba(244,63,94,0.16), rgba(248,113,113,0.06))',
+    border: 'rgba(244,63,94,0.22)',
+    chip: 'rgba(244,63,94,0.14)',
+    shadow: '0 14px 28px rgba(244, 63, 94, 0.18)',
+  },
+};
+
+const DotsIcon = () => (
+  <svg viewBox="0 0 16 16" width={16} height={16} aria-hidden="true" focusable="false">
+    <circle cx="2.5" cy="8" r="1.5" fill="currentColor" />
+    <circle cx="8" cy="8" r="1.5" fill="currentColor" />
+    <circle cx="13.5" cy="8" r="1.5" fill="currentColor" />
+  </svg>
+);
 
 const LeadPage = () => {
   const navigate = useNavigate();
@@ -120,6 +228,7 @@ const LeadPage = () => {
     updateLead,
     removeLead,
     recordLeadActivity,
+    removeLeadActivity,
     bulkUpdateLeads,
     addClient,
     addClientContact,
@@ -131,7 +240,6 @@ const LeadPage = () => {
   } = useAppData();
 
   const [view, setView] = useState<'table' | 'kanban'>('table');
-  const [search, setSearch] = useState('');
   const [filters, setFilters] = useState({
     owner: 'Tous',
     status: 'Tous',
@@ -139,17 +247,19 @@ const LeadPage = () => {
     segment: 'Tous',
     tag: 'Tous',
   });
+  const [filtersVisible, setFiltersVisible] = useState(false);
   const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
   const [activePanel, setActivePanel] = useState<'create' | 'edit' | null>(null);
   const [editingLeadId, setEditingLeadId] = useState<string | null>(null);
+  const [showCreateLeadModal, setShowCreateLeadModal] = useState(false);
+  const [showEditLeadModal, setShowEditLeadModal] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [noteType, setNoteType] = useState<LeadActivityType>('note');
   const [noteDraft, setNoteDraft] = useState('');
+  const [pendingActivities, setPendingActivities] = useState<Array<{ type: LeadActivityType; content: string }>>([]);
   const [draggingLeadId, setDraggingLeadId] = useState<string | null>(null);
-  const [hoveredStatus, setHoveredStatus] = useState<LeadStatus | null>(null);
 
   const listSectionRef = useRef<HTMLDivElement | null>(null);
-  const createSectionRef = useRef<HTMLDivElement | null>(null);
   const editSectionRef = useRef<HTMLDivElement | null>(null);
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const leadRefs = useRef<Record<string, HTMLElement | null>>({});
@@ -218,8 +328,8 @@ const LeadPage = () => {
   }, [location.pathname, location.search, leads, defaultOwner, defaultCompanyId, navigate]);
 
   useEffect(() => {
-    const target = activePanel === 'create' ? createSectionRef.current : editSectionRef.current;
-    if (!activePanel || !target) {
+    const target = activePanel === 'edit' ? editSectionRef.current : null;
+    if (!target) {
       return;
     }
     target.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -229,17 +339,25 @@ const LeadPage = () => {
     }, 160);
   }, [activePanel]);
 
-  const filteredLeads = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    return leads.filter((lead) => {
-      if (term) {
-        const haystack = [lead.company, lead.contact, lead.email, lead.phone]
-          .join(' ')
-          .toLowerCase();
-        if (!haystack.includes(term)) {
-          return false;
-        }
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && showEditLeadModal) {
+        setShowEditLeadModal(false);
+        setEditingLeadId(null);
+        setFeedback(null);
+        setPendingActivities([]);
       }
+    };
+    if (showEditLeadModal) {
+      document.addEventListener('keydown', handleEscape);
+      return () => {
+        document.removeEventListener('keydown', handleEscape);
+      };
+    }
+  }, [showEditLeadModal]);
+
+  const filteredLeads = useMemo(() => {
+    return leads.filter((lead) => {
       if (filters.owner !== 'Tous' && lead.owner !== filters.owner) {
         return false;
       }
@@ -257,7 +375,7 @@ const LeadPage = () => {
       }
       return true;
     });
-  }, [leads, search, filters]);
+  }, [leads, filters]);
 
   const editingLead = editingLeadId ? leads.find((lead) => lead.id === editingLeadId) ?? null : null;
 
@@ -276,20 +394,34 @@ const LeadPage = () => {
   const handleOpenCreate = () => {
     setLeadForm(buildFormState(null, defaultOwner, defaultCompanyId));
     setEditingLeadId(null);
-    setActivePanel('create');
+    setShowCreateLeadModal(true);
     setNoteDraft('');
+    setFeedback(null);
+    setPendingActivities([]);
+  };
+
+  const handleCloseCreateModal = () => {
+    setShowCreateLeadModal(false);
     setFeedback(null);
   };
 
   const handleOpenEdit = (lead: Lead, intent?: LeadActivityType) => {
     setLeadForm(buildFormState(lead, defaultOwner, defaultCompanyId));
     setEditingLeadId(lead.id);
-    setActivePanel('edit');
+    setShowEditLeadModal(true);
     if (intent) {
       setNoteType(intent);
     }
     setNoteDraft('');
     setFeedback(null);
+    setPendingActivities([]);
+  };
+
+  const handleCloseEditModal = () => {
+    setShowEditLeadModal(false);
+    setEditingLeadId(null);
+    setFeedback(null);
+    setPendingActivities([]);
   };
 
   const closePanels = () => {
@@ -320,7 +452,6 @@ const LeadPage = () => {
 
   const handlePipelineLeadClick = (leadId: string) => {
     setView('table');
-    setHoveredStatus(null);
     window.requestAnimationFrame(() => scrollToLead(leadId));
   };
 
@@ -353,15 +484,15 @@ const LeadPage = () => {
   const handleCreateSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!leadForm.company.trim() || !leadForm.contact.trim()) {
-      setFeedback('Renseignez au minimum l’entreprise et le contact.');
+      setFeedback("Renseignez au minimum l'entreprise et le contact.");
       return;
     }
     if (emailDuplicate) {
-      setFeedback('Un lead utilise déjà cet email.');
+      setFeedback("Un lead utilise déjà cet email.");
       return;
     }
     if (phoneDuplicate) {
-      setFeedback('Un lead utilise déjà ce numéro.');
+      setFeedback("Un lead utilise déjà ce numéro.");
       return;
     }
     const payload = mapFormToPayload();
@@ -369,10 +500,33 @@ const LeadPage = () => {
       ...payload,
       lastContact: null,
     });
+    
+    // Ajouter les activités en attente
+    pendingActivities.forEach((activity) => {
+      recordLeadActivity(created.id, activity);
+    });
+    
     setFeedback('Lead créé.');
     setSelectedLeadIds((ids) => [created.id, ...ids]);
-    closePanels();
+    setShowCreateLeadModal(false);
+    setPendingActivities([]);
     scrollToList();
+  };
+
+  const handleAddPendingActivity = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!noteDraft.trim()) {
+      return;
+    }
+    setPendingActivities((prev) => [
+      ...prev,
+      {
+        type: noteType,
+        content: noteDraft.trim(),
+      },
+    ]);
+    setNoteDraft('');
+    setNoteType('note');
   };
 
   const handleEditSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -381,19 +535,29 @@ const LeadPage = () => {
       return;
     }
     if (!leadForm.company.trim() || !leadForm.contact.trim()) {
-      setFeedback('Renseignez au minimum l’entreprise et le contact.');
+      setFeedback("Renseignez au minimum l'entreprise et le contact.");
       return;
     }
     if (emailDuplicate) {
-      setFeedback('Un lead utilise déjà cet email.');
+      setFeedback("Un lead utilise déjà cet email.");
       return;
     }
     if (phoneDuplicate) {
-      setFeedback('Un lead utilise déjà ce numéro.');
+      setFeedback("Un lead utilise déjà ce numéro.");
       return;
     }
     updateLead(editingLeadId, mapFormToPayload());
+    
+    // Ajouter les activités en attente
+    pendingActivities.forEach((activity) => {
+      recordLeadActivity(editingLeadId, activity);
+    });
+    
     setFeedback('Lead mis à jour.');
+    setPendingActivities([]);
+    setTimeout(() => {
+      handleCloseEditModal();
+    }, 1000);
   };
 
   const ensureClientFromLead = (lead: Lead) => {
@@ -843,7 +1007,56 @@ const LeadPage = () => {
     );
   };
 
-  const leadCount = filteredLeads.length;
+  const totalLeads = leads.length;
+  const activeLeads = leads.filter((lead) => lead.status !== 'Perdu' && lead.status !== 'Gagné').length;
+  const leadsInProgress = leads.filter((lead) => lead.status === 'En cours' || lead.status === 'Devis envoyé').length;
+  const visibleLeadCount = filteredLeads.length;
+
+  const totalEstimatedValue = useMemo(
+    () =>
+      filteredLeads.reduce(
+        (acc, lead) => acc + (lead.estimatedValue !== null && lead.estimatedValue !== undefined ? lead.estimatedValue : 0),
+        0
+      ),
+    [filteredLeads]
+  );
+
+  const leadKpis = useMemo(() => {
+    const averageValue = totalLeads > 0 ? totalEstimatedValue / totalLeads : 0;
+    return [
+      {
+        id: 'total',
+        label: 'Leads suivis',
+        value: totalLeads.toLocaleString('fr-FR'),
+        helper: `${activeLeads.toLocaleString('fr-FR')} actifs`,
+        icon: Users,
+      },
+      {
+        id: 'pipeline',
+        label: 'Leads en qualification',
+        value: leadsInProgress.toLocaleString('fr-FR'),
+        helper: 'Pipeline en qualification',
+        icon: Target,
+      },
+      {
+        id: 'value',
+        label: 'Valeur moyenne / lead',
+        value: formatCurrency(averageValue),
+        helper: `Total ${formatCurrency(totalEstimatedValue)}`,
+        icon: TrendingUp,
+      },
+    ];
+  }, [totalLeads, activeLeads, leadsInProgress, totalEstimatedValue]);
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (filters.owner !== 'Tous') count += 1;
+    if (filters.status !== 'Tous') count += 1;
+    if (filters.source !== 'Toutes') count += 1;
+    if (filters.segment !== 'Tous') count += 1;
+    if (filters.tag !== 'Tous') count += 1;
+    return count;
+  }, [filters]);
 
   const leadsByStatus = useMemo(
     () =>
@@ -853,6 +1066,54 @@ const LeadPage = () => {
       })),
     [filteredLeads]
   );
+
+  const leadsByStatusMap = useMemo(() => {
+    const map = new Map<LeadStatus, Lead[]>();
+    leadsByStatus.forEach(({ status, leads: statusLeads }) => {
+      map.set(status, statusLeads);
+    });
+    return map;
+  }, [leadsByStatus]);
+
+  const pipelineMetrics = useMemo(() => {
+    return pipelineStatuses.map((status) => {
+      const total = leads.filter((lead) => lead.status === status).length;
+      const visible = leadsByStatusMap.get(status) ?? [];
+      const visibilityRatio = total === 0 ? 0 : visible.length / total;
+      const shareOfAll = totalLeads === 0 ? 0 : total / totalLeads;
+      const sortedVisible = [...visible].sort((a, b) => {
+        const nextStepAValue = a.nextStepDate ? Date.parse(a.nextStepDate) : Number.POSITIVE_INFINITY;
+        const nextStepBValue = b.nextStepDate ? Date.parse(b.nextStepDate) : Number.POSITIVE_INFINITY;
+        const nextStepA = Number.isFinite(nextStepAValue) ? nextStepAValue : Number.POSITIVE_INFINITY;
+        const nextStepB = Number.isFinite(nextStepBValue) ? nextStepBValue : Number.POSITIVE_INFINITY;
+        if (nextStepA !== nextStepB) {
+          return nextStepA - nextStepB;
+        }
+        const createdAtA = Date.parse(a.createdAt);
+        const createdAtB = Date.parse(b.createdAt);
+        const safeCreatedAtA = Number.isFinite(createdAtA) ? createdAtA : 0;
+        const safeCreatedAtB = Number.isFinite(createdAtB) ? createdAtB : 0;
+        return safeCreatedAtB - safeCreatedAtA;
+      });
+      const nextLead = sortedVisible[0] ?? null;
+      return {
+        status,
+        total,
+        visible: visible.length,
+        visibilityRatio,
+        shareOfAll,
+        leads: sortedVisible,
+        nextLead,
+      };
+    });
+  }, [leads, leadsByStatusMap, totalLeads]);
+
+  const handleStatusFilterToggle = (status: LeadStatus) => {
+    setFilters((prev) => ({
+      ...prev,
+      status: prev.status === status ? 'Tous' : status,
+    }));
+  };
 
   const kanban = (
     <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -981,366 +1242,453 @@ const LeadPage = () => {
   };
 
   return (
-    <div className="lead-page space-y-7">
-      <Card
-        title="Leads"
-        description="Centralisez prospection et pipeline dans une vue compacte."
-        className="lead-card"
-        action={
-          <div className="flex flex-wrap items-center gap-2">
-            {hasPermission('lead.edit') && (
-              <Button variant="secondary" size="xs" onClick={handleOpenCreate}>
-                Nouveau lead
-              </Button>
-            )}
-            {hasPermission('lead.edit') && (
-              <Button
-                variant="secondary"
-                size="xs"
-                onClick={() => importInputRef.current?.click()}
-              >
-                Importer CSV
-              </Button>
-            )}
-            <Button variant="secondary" size="xs" onClick={handleExport}>
-              Exporter
-            </Button>
-            <Button
-              variant="secondary"
-              size="xs"
-              onClick={() => setView((mode) => (mode === 'table' ? 'kanban' : 'table'))}
-            >
-              {view === 'table' ? 'Vue Kanban' : 'Vue Table'}
-            </Button>
+    <div className="dashboard-page space-y-10">
+      <header className="dashboard-hero">
+        <div className="dashboard-hero__content">
+          <div className="dashboard-hero__intro">
+            <p className="dashboard-hero__eyebrow">Gestion CRM</p>
+            <h1 className="dashboard-hero__title">Prospection</h1>
+            <p className="dashboard-hero__subtitle">
+              Pilotez vos leads et convertissez vos prospects en clients
+            </p>
           </div>
-        }
-      >
-        {/* Pipeline simplifié */}
-        <div className="mb-2 flex items-center justify-between text-xs font-medium text-slate-500">
-          <span>Pipeline commercial</span>
-          <span>{leadCount} leads</span>
         </div>
-        <div className="space-y-3">
-          {leadsByStatus.map(({ status, leads: statusLeads }) => {
-            const isFilterActive = filters.status === status;
-            const isHovered = hoveredStatus === status;
-            const shouldShowList = isFilterActive || isHovered;
+        <div className="dashboard-hero__glow" aria-hidden />
+      </header>
+
+      {feedback && (
+        <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700 shadow-sm dark:border-blue-900/40 dark:bg-blue-900/30 dark:text-blue-200">
+          {feedback}
+        </div>
+      )}
+
+      <section className="space-y-4">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {leadKpis.map((kpi, index) => {
+            const Icon = [Users, Flame, TrendingUp][index] ?? Users;
             return (
-              <div
-                key={status}
-                className={clsx(
-                  'rounded-md border border-slate-200 bg-white transition-shadow focus-within:border-primary/50 focus-within:shadow-sm',
-                  isHovered && 'border-primary/40 shadow-sm'
+              <div key={kpi.label} className="dashboard-kpi group">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1">
+                    <p className="dashboard-kpi__eyebrow">{kpi.label}</p>
+                    <p className="dashboard-kpi__value">{kpi.value}</p>
+                    <p className="dashboard-kpi__description">{kpi.helper}</p>
+                  </div>
+                  <div className="dashboard-kpi__icon">
+                    <Icon />
+                  </div>
+                </div>
+                <div className="dashboard-kpi__glow" aria-hidden />
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="space-y-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-colors md:p-5 dark:border-[var(--border)] dark:bg-[var(--surface)]">
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-1 items-center gap-4">
+              <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={toggleSelectAll}
+                    className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-2 focus:ring-blue-500"
+                  />
+                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Tout sélectionner</span>
+                </div>
+                {selectedLeadIds.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2 border-l border-slate-200 pl-4 dark:border-slate-700">
+                    <span className="text-sm text-slate-600 dark:text-slate-400">
+                      {selectedLeadIds.length} sélectionné(s)
+                    </span>
+                    {hasPermission('lead.contact') && (
+                      <Button variant="ghost" size="xs" onClick={handleBulkContactLeads}>
+                        Contacter
+                      </Button>
+                    )}
+                    {hasPermission('lead.convert') && (
+                      <Button variant="ghost" size="xs" onClick={handleBulkConvertLeads}>
+                        Convertir
+                      </Button>
+                    )}
+                    {hasPermission('lead.delete') && (
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        onClick={handleBulkDeleteLeads}
+                        className="text-rose-600 hover:text-rose-700"
+                      >
+                        Supprimer
+                      </Button>
+                    )}
+                  </div>
                 )}
-                onMouseEnter={() => setHoveredStatus(status)}
-                onMouseLeave={() =>
-                  setHoveredStatus((current) => (current === status ? null : current))
-                }
-                onFocusCapture={() => setHoveredStatus(status)}
-                onBlurCapture={(event) => {
-                  const next = event.relatedTarget as Node | null;
-                  if (!next || !event.currentTarget.contains(next)) {
-                    setHoveredStatus((current) => (current === status ? null : current));
-                  }
-                }}
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+              </div>
+              <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-end lg:w-auto">
+                <button
+                  type="button"
+                  onClick={() => setFiltersVisible((value) => !value)}
+                  className={clsx(
+                    'relative flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition',
+                    filtersVisible || activeFiltersCount > 0
+                      ? 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-200 dark:hover:bg-blue-900/40'
+                      : 'bg-slate-50 text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
+                  )}
+                >
+                  <Filter className="h-4 w-4" />
+                  Filtres
+                  {activeFiltersCount > 0 && (
+                    <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-xs text-white dark:bg-blue-500">
+                      {activeFiltersCount}
+                    </span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExport}
+                  className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600"
+                >
+                  <Download className="h-4 w-4" />
+                  <span className="hidden sm:inline">Export</span>
+                </button>
+                {hasPermission('lead.edit') && (
+                  <button
+                    type="button"
+                    onClick={handleOpenCreate}
+                    className="flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white/90"
+                  >
+                    Nouveau lead
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+        {filtersVisible && (
+          <div className="space-y-4 border-t border-slate-200 pt-6 dark:border-slate-800">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+                <div>
+                  <label className="mb-2 block text-xs font-medium text-slate-600 dark:text-slate-300">Propriétaire</label>
+                  <select
+                    value={filters.owner}
+                    onChange={(event) => setFilters((prev) => ({ ...prev, owner: event.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                  >
+                    <option value="Tous">Tous</option>
+                    {owners.map((owner) => (
+                      <option key={owner} value={owner}>
+                        {owner}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-2 block text-xs font-medium text-slate-600 dark:text-slate-300">Statut</label>
+                  <select
+                    value={filters.status}
+                    onChange={(event) => setFilters((prev) => ({ ...prev, status: event.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                  >
+                    <option value="Tous">Tous</option>
+                    {pipelineStatuses.map((status) => (
+                      <option key={status} value={status}>
+                        {status}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-2 block text-xs font-medium text-slate-600 dark:text-slate-300">Source</label>
+                  <select
+                    value={filters.source}
+                    onChange={(event) => setFilters((prev) => ({ ...prev, source: event.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                  >
+                    <option value="Toutes">Toutes</option>
+                    {sources.map((source) => (
+                      <option key={source} value={source}>
+                        {source}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-2 block text-xs font-medium text-slate-600 dark:text-slate-300">Segment</label>
+                  <select
+                    value={filters.segment}
+                    onChange={(event) => setFilters((prev) => ({ ...prev, segment: event.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                  >
+                    <option value="Tous">Tous</option>
+                    {segments.map((segment) => (
+                      <option key={segment} value={segment}>
+                        {segment}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-2 block text-xs font-medium text-slate-600 dark:text-slate-300">Tag</label>
+                  <select
+                    value={filters.tag}
+                    onChange={(event) => setFilters((prev) => ({ ...prev, tag: event.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                  >
+                    <option value="Tous">Tous</option>
+                    {tagsCatalog.map((tag) => (
+                      <option key={tag} value={tag}>
+                        {tag}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
+                <p className="text-slate-500 dark:text-slate-400">
+                  {activeFiltersCount ? `${activeFiltersCount} filtre(s) actif(s)` : 'Aucun filtre actif'}
+                </p>
+                {activeFiltersCount > 0 && (
                   <button
                     type="button"
                     onClick={() =>
-                      setFilters((prev) => ({
-                        ...prev,
-                        status: prev.status === status ? 'Tous' : status,
-                      }))
+                      setFilters({
+                        owner: 'Tous',
+                        status: 'Tous',
+                        source: 'Toutes',
+                        segment: 'Tous',
+                        tag: 'Tous',
+                      })
                     }
-                    className={clsx(
-                      'flex items-center gap-3 rounded-sm px-2 py-1 text-left text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
-                      isFilterActive
-                        ? 'bg-primary/5 text-slate-900'
-                        : 'text-slate-600 hover:bg-slate-50'
-                    )}
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-300 dark:hover:text-blue-200"
                   >
-                    <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
-                      {status}
-                    </span>
-                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">
-                      {statusLeads.length}
-                    </span>
+                    <X className="h-3.5 w-3.5" />
+                    Effacer les filtres
                   </button>
-                  {statusLeads.length > 0 && (
-                    <span className="text-[11px] text-slate-400">
-                      Survolez pour explorer • Cliquez pour filtrer
-                    </span>
-                  )}
-                </div>
-                {shouldShowList && (
-                  <div className="border-t border-slate-100">
-                    {statusLeads.length ? (
-                      <div className="flex gap-3 overflow-x-auto px-3 py-3">
-                        {statusLeads.map((lead) => {
-                          const nextStep = lead.nextStepDate
-                            ? formatShortDate(lead.nextStepDate)
-                            : null;
-                          const estimatedValue =
-                            lead.estimatedValue !== null && lead.estimatedValue !== undefined
-                              ? formatCurrency(lead.estimatedValue)
-                              : null;
-                          return (
-                            <div
-                              key={lead.id}
-                              className="flex min-w-[230px] flex-shrink-0 flex-col justify-between rounded-md border border-slate-200 bg-slate-50/60 px-3 py-3 text-sm text-slate-600 transition hover:border-primary/40 hover:bg-white"
-                            >
-                              <button
-                                type="button"
-                                onClick={() => handlePipelineLeadClick(lead.id)}
-                                className="text-left"
-                              >
-                                <p className="font-semibold text-slate-900">
-                                  {lead.company || lead.contact || 'Lead'}
+                )}
+              </div>
+            </div>
+          )}
+      </section>
+
+      <div ref={listSectionRef} className="space-y-6">
+        {view === 'table' ? (
+          <>
+            <div className="hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-colors dark:border-[var(--border)] dark:bg-[var(--surface)] lg:block">
+              <div className="overflow-x-auto rounded-2xl">
+                <table className="w-full">
+                  <thead className="border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/60">
+                    <tr>
+                      <th className="w-12 px-4 py-4" />
+                      <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                        Entreprise / Contact
+                      </th>
+                      <th className="px-6 py-4 text-center text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                        Statut
+                      </th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                        Prochaine action
+                      </th>
+                      <th className="px-6 py-4 text-right text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                        Valeur estimée
+                      </th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                        Téléphone
+                      </th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                        Email
+                      </th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                        Source
+                      </th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                        Actions
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredLeads.map((lead) => {
+                      const isSelected = selectedLeadIds.includes(lead.id);
+                      const nextStep = lead.nextStepDate ? formatShortDate(lead.nextStepDate) : '—';
+                      const lastContact = lead.lastContact ? formatDateTime(lead.lastContact) : null;
+                      const estimatedValue =
+                        lead.estimatedValue !== null && lead.estimatedValue !== undefined
+                          ? formatCurrency(lead.estimatedValue)
+                          : null;
+                      const statusStyle = leadStatusConfig[lead.status];
+                      const avatarLabel = getLeadInitials(lead.company || '', lead.contact || '');
+
+                      return (
+                        <tr
+                          key={lead.id}
+                          onClick={() => handleOpenEdit(lead)}
+                          className={clsx(
+                            'group transition hover:bg-slate-50 dark:hover:bg-white/5',
+                            isSelected && 'bg-blue-50/50 dark:bg-blue-500/10'
+                          )}
+                        >
+                          <td className="px-6 py-5">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={(event) => {
+                                event.stopPropagation();
+                                toggleSelection(lead.id);
+                              }}
+                              className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-2 focus:ring-blue-500"
+                            />
+                          </td>
+                          <td className="px-6 py-5 align-middle">
+                            <div className="flex items-center gap-3">
+                              <div className="space-y-1">
+                                <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                                  {lead.contact || 'Sans contact'}
                                 </p>
-                                <div className="mt-1 space-y-1 text-[11px] text-slate-500">
-                                  {lead.contact && <p>Contact : {lead.contact}</p>}
-                                  {nextStep && <p>Prochaine action : {nextStep}</p>}
-                                  {lead.owner && <p>Responsable : {lead.owner}</p>}
-                                  {estimatedValue && <p>Valeur : {estimatedValue} €</p>}
-                                </div>
+                                <p className="text-xs text-slate-500 dark:text-slate-400">{lead.company || 'Sans entreprise'}</p>
                                 {lead.tags.length > 0 && (
-                                  <div className="mt-1 flex flex-wrap gap-1 text-[10px] uppercase tracking-[0.18em] text-slate-400">
-                                    {lead.tags.map((tag) => (
-                                      <span key={tag} className="rounded-sm bg-slate-100 px-1 py-0.5">
+                                  <div className="flex flex-wrap gap-1">
+                                    {lead.tags.slice(0, 3).map((tag) => (
+                                      <span
+                                        key={tag}
+                                        className="rounded bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                                      >
                                         {tag}
                                       </span>
                                     ))}
                                   </div>
                                 )}
-                                {lead.nextStepNote && (
-                                  <p className="mt-2 text-[11px] text-slate-500">
-                                    {lead.nextStepNote}
-                                  </p>
-                                )}
-                              </button>
-                              <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
-                                {lead.phone && (
-                                  <a
-                                    href={`tel:${lead.phone}`}
-                                    onClick={(event) => event.stopPropagation()}
-                                    className="inline-flex items-center gap-1 rounded-sm border border-slate-200 px-2 py-1 text-slate-600 transition hover:border-primary/30 hover:text-primary"
-                                  >
-                                    <IconPhone />
-                                    Appeler
-                                  </a>
-                                )}
-                                {lead.email && (
-                                  <a
-                                    href={`mailto:${lead.email}`}
-                                    onClick={(event) => event.stopPropagation()}
-                                    className="inline-flex items-center gap-1 rounded-sm border border-slate-200 px-2 py-1 text-slate-600 transition hover:border-primary/30 hover:text-primary"
-                                  >
-                                    <IconMail />
-                                    Email
-                                  </a>
-                                )}
-                                <Button
-                                  size="xs"
-                                  variant="ghost"
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-5 align-middle text-center">
+                            <span
+                              className={clsx(
+                                'inline-flex items-center rounded-full px-3 py-1.5 text-xs font-medium',
+                                statusStyle.color
+                              )}
+                            >
+                              {statusStyle.label}
+                            </span>
+                          </td>
+                          <td className="px-6 py-5 align-middle">
+                            <div className="space-y-1">
+                              <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{nextStep}</p>
+                              {lead.nextStepNote && (
+                                <p className="text-xs text-slate-600 dark:text-slate-400">{lead.nextStepNote}</p>
+                              )}
+                              {lastContact && (
+                                <p className="text-xs text-slate-500 dark:text-slate-500">Dernier contact {lastContact}</p>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-6 py-5 align-middle text-right">
+                            {estimatedValue ? (
+                              <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{estimatedValue}</p>
+                            ) : (
+                              <p className="text-sm text-slate-400">—</p>
+                            )}
+                          </td>
+                          <td className="px-6 py-5 align-middle">
+                            <a
+                              href={`tel:${lead.phone}`}
+                              onClick={(event) => event.stopPropagation()}
+                              className="text-sm text-blue-600 hover:underline dark:text-blue-400"
+                            >
+                              {lead.phone || '—'}
+                            </a>
+                          </td>
+                          <td className="px-6 py-5 align-middle">
+                            <a
+                              href={`mailto:${lead.email}`}
+                              onClick={(event) => event.stopPropagation()}
+                              className="text-sm text-blue-600 hover:underline dark:text-blue-400"
+                            >
+                              {lead.email || '—'}
+                            </a>
+                          </td>
+                          <td className="px-6 py-5 align-middle">
+                            <div className="space-y-1">
+                              <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{lead.source || '—'}</p>
+                              {lead.segment && <p className="text-xs text-slate-600 dark:text-slate-400">{lead.segment}</p>}
+                            </div>
+                          </td>
+                          <td className="px-6 py-5 align-middle">
+                            <div className="flex items-center justify-end gap-2">
+                              {hasPermission('lead.edit') && (
+                                <button
+                                  type="button"
                                   onClick={(event) => {
                                     event.stopPropagation();
                                     handleOpenEdit(lead);
                                   }}
+                                  className="rounded-lg p-2 text-slate-600 transition hover:bg-slate-100 hover:text-slate-800 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                                  title="Modifier"
                                 >
-                                  Détails
-                                </Button>
-                              </div>
+                                  <span className="h-4 w-4"><IconEdit /></span>
+                                </button>
+                              )}
+                              {hasPermission('lead.contact') && (
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    handleContactLead(lead);
+                                  }}
+                                  className="rounded-lg p-2 text-slate-600 transition hover:bg-blue-100 hover:text-blue-700 dark:text-slate-300 dark:hover:bg-blue-900/30 dark:hover:text-blue-200"
+                                  title="Contacter"
+                                >
+                                  <span className="h-4 w-4"><IconPaperPlane /></span>
+                                </button>
+                              )}
+                              {hasPermission('lead.convert') && (
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    handleConvertToClient(lead);
+                                  }}
+                                  className="rounded-lg p-2 text-slate-600 transition hover:bg-emerald-100 hover:text-emerald-700 dark:text-slate-300 dark:hover:bg-emerald-900/30 dark:hover:text-emerald-200"
+                                  title="Convertir en client"
+                                >
+                                  <span className="h-4 w-4"><IconConvert /></span>
+                                </button>
+                              )}
+                              {hasPermission('lead.delete') && (
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    handleDeleteLead(lead.id);
+                                  }}
+                                  className="rounded-lg p-2 text-slate-600 transition hover:bg-rose-100 hover:text-rose-700 dark:text-slate-300 dark:hover:bg-rose-900/30 dark:hover:text-rose-200"
+                                  title="Supprimer"
+                                >
+                                  <span className="h-4 w-4"><IconTrash /></span>
+                                </button>
+                              )}
                             </div>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <p className="px-3 py-4 text-sm text-slate-400">
-                        Aucun client dans cette étape.
-                      </p>
-                    )}
-                  </div>
-                )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
-            );
-          })}
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-5">
-          <div className="md:col-span-2">
-            <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-search">
-              Recherche
-            </label>
-            <input
-              id="lead-search"
-              type="search"
-              placeholder="Entreprise, contact, email, téléphone"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              className="mt-1 w-full rounded-soft border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
-            />
-          </div>
-          <div>
-            <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-owner">
-              Propriétaire
-            </label>
-            <select
-              id="lead-owner"
-              value={filters.owner}
-              onChange={(event) => setFilters((prev) => ({ ...prev, owner: event.target.value }))}
-              className="mt-1 w-full rounded-soft border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
-            >
-              <option value="Tous">Tous</option>
-              {owners.map((owner) => (
-                <option key={owner} value={owner}>
-                  {owner}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-status">
-              Statut
-            </label>
-            <select
-              id="lead-status"
-              value={filters.status}
-              onChange={(event) => setFilters((prev) => ({ ...prev, status: event.target.value }))}
-              className="mt-1 w-full rounded-soft border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
-            >
-              <option value="Tous">Tous</option>
-              {pipelineStatuses.map((status) => (
-                <option key={status} value={status}>
-                  {status}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-source">
-              Source
-            </label>
-            <select
-              id="lead-source"
-              value={filters.source}
-              onChange={(event) => setFilters((prev) => ({ ...prev, source: event.target.value }))}
-              className="mt-1 w-full rounded-soft border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
-            >
-              <option value="Toutes">Toutes</option>
-              {sources.map((source) => (
-                <option key={source} value={source}>
-                  {source}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-segment">
-              Segment
-            </label>
-            <select
-              id="lead-segment"
-              value={filters.segment}
-              onChange={(event) => setFilters((prev) => ({ ...prev, segment: event.target.value }))}
-              className="mt-1 w-full rounded-soft border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
-            >
-              <option value="Tous">Tous</option>
-              {segments.map((segment) => (
-                <option key={segment} value={segment}>
-                  {segment}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-tag">
-              Tag
-            </label>
-            <select
-              id="lead-tag"
-              value={filters.tag}
-              onChange={(event) => setFilters((prev) => ({ ...prev, tag: event.target.value }))}
-              className="mt-1 w-full rounded-soft border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
-            >
-              <option value="Tous">Tous</option>
-              {tagsCatalog.map((tag) => (
-                <option key={tag} value={tag}>
-                  {tag}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {feedback && <p className="mt-4 text-xs font-medium text-primary">{feedback}</p>}
-
-        <div className="mt-6 flex flex-wrap items-center gap-3 text-[11px] uppercase tracking-[0.2em] text-slate-500">
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              className="table-checkbox h-4 w-4 rounded focus:ring-primary/40"
-              checked={allSelected}
-              onChange={toggleSelectAll}
-            />
-            <span>Sélectionner tout</span>
-          </div>
-          {!!selectedLeadIds.length && (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-slate-400">|</span>
-              <span>{selectedLeadIds.length} sélectionnés</span>
-              {hasPermission('lead.contact') && (
-                <Button variant="ghost" size="xs" onClick={handleBulkContactLeads}>
-                  Contacter
-                </Button>
-              )}
-              {hasPermission('lead.convert') && (
-                <Button variant="ghost" size="xs" onClick={handleBulkConvertLeads}>
-                  Convertir
-                </Button>
-              )}
-              {hasPermission('lead.delete') && (
-                <Button
-                  variant="ghost"
-                  size="xs"
-                  onClick={handleBulkDeleteLeads}
-                  className="text-rose-600 hover:text-rose-700"
-                >
-                  Supprimer
-                </Button>
-              )}
-              <button
-                type="button"
-                onClick={clearSelectedLeads}
-                className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-400 transition hover:text-slate-600"
-              >
-                Vider la sélection
-              </button>
-            </div>
-          )}
-        </div>
-
-        <div ref={listSectionRef}>
-          {view === 'table' ? (
-            <div className="mt-6 space-y-4">
-            <div className="hidden md:block">
-              <Table
-                columns={tableColumns}
-                rows={tableRows}
-                tone="plain"
-                density="compact"
-                striped={false}
-                onRowClick={(index) => handleOpenEdit(filteredLeads[index])}
-                rowClassName={leadRowClassName}
-              />
-              {!tableRows.length && (
-                <p className="mt-3 text-center text-xs text-slate-500">
-                  Aucun lead ne correspond aux filtres.
-                </p>
+              {filteredLeads.length === 0 && (
+                <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                  <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800">
+                    <Search className="h-8 w-8 text-slate-400 dark:text-slate-500" />
+                  </div>
+                  <h3 className="mb-2 text-lg font-semibold text-slate-800 dark:text-slate-100">Aucun lead trouvé</h3>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">
+                    Ajustez votre recherche ou vos filtres pour retrouver vos leads.
+                  </p>
+                </div>
               )}
             </div>
 
-            <div className="md:hidden">
+            <div className="lg:hidden">
               <div className="space-y-3">
                 {filteredLeads.map((lead) => {
                   const isSelected = selectedLeadIds.includes(lead.id);
@@ -1350,6 +1698,8 @@ const LeadPage = () => {
                     lead.estimatedValue !== null && lead.estimatedValue !== undefined
                       ? formatCurrency(lead.estimatedValue)
                       : null;
+                  const statusStyle = leadStatusConfig[lead.status];
+                  const avatarLabel = getLeadInitials(lead.company || '', lead.contact || '');
 
                   return (
                     <div
@@ -1364,9 +1714,9 @@ const LeadPage = () => {
                         }
                       }}
                       className={clsx(
-                        'rounded-soft border border-slate-200 bg-white px-3 py-3 text-[13px] text-slate-700 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
-                        'cursor-pointer hover:bg-slate-100',
-                        isSelected && 'border-primary/60 bg-slate-100 text-slate-900'
+                        'rounded-2xl border border-slate-200 bg-white p-4 text-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:border-slate-800 dark:bg-slate-900',
+                        'cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800',
+                        isSelected && 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
                       )}
                       onClick={() => handleOpenEdit(lead)}
                       onKeyDown={(event) => {
@@ -1377,19 +1727,18 @@ const LeadPage = () => {
                       }}
                     >
                       <div className="flex items-start justify-between gap-3">
-                        <div className="space-y-1">
-                          <p className="font-semibold text-slate-900">{lead.contact || 'Sans contact'}</p>
-                          <p className="text-[12px] text-slate-500">{lead.company || 'Sans entreprise'}</p>
-                          {lead.tags.length > 0 && (
-                            <p className="text-[10px] uppercase tracking-[0.24em] text-slate-400">
-                              {lead.tags.join(' · ')}
+                        <div className="flex items-center gap-3">
+                          <div className="space-y-1">
+                            <p className="font-semibold text-slate-900 dark:text-slate-100">
+                              {lead.contact || 'Sans contact'}
                             </p>
-                          )}
+                            <p className="text-xs text-slate-500 dark:text-slate-400">{lead.company || 'Sans entreprise'}</p>
+                          </div>
                         </div>
                         <div className="flex items-start gap-2">
                           <input
                             type="checkbox"
-                            className="table-checkbox mt-0.5 h-4 w-4 rounded focus:ring-primary/40"
+                            className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-2 focus:ring-blue-500"
                             checked={isSelected}
                             onChange={() => toggleSelection(lead.id)}
                             onClick={(event) => event.stopPropagation()}
@@ -1397,359 +1746,1129 @@ const LeadPage = () => {
                           />
                           <span
                             className={clsx(
-                              'inline-flex items-center rounded-full border px-2 py-1 text-[11px] font-medium',
-                              statusTone[lead.status]
+                              'inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium',
+                              statusStyle.color
                             )}
                           >
-                            {lead.status}
+                            {statusStyle.label}
                           </span>
                         </div>
                       </div>
-                      <div className="mt-3 space-y-1 text-[12px]">
+                      <div className="mt-3 space-y-1 text-xs">
                         <a
                           href={`tel:${lead.phone}`}
                           onClick={(event) => event.stopPropagation()}
-                          className="block text-primary hover:underline"
+                          className="block text-blue-600 hover:underline dark:text-blue-400"
                         >
                           {lead.phone || '—'}
                         </a>
                         <a
                           href={`mailto:${lead.email}`}
                           onClick={(event) => event.stopPropagation()}
-                          className="block break-words text-primary hover:underline"
+                          className="block break-words text-blue-600 hover:underline dark:text-blue-400"
                         >
                           {lead.email || '—'}
                         </a>
                       </div>
-                      <div className="mt-3 space-y-1 text-[12px] text-slate-600">
-                        <p className="font-medium text-slate-900">{nextStep}</p>
-                        {lead.nextStepNote && <p className="text-[11px] text-slate-500">{lead.nextStepNote}</p>}
-                        {lastContact && <p className="text-[11px] text-slate-400">Dernier contact {lastContact}</p>}
-                        <div className="text-[11px] text-slate-500">
+                      <div className="mt-3 space-y-1 text-xs text-slate-600 dark:text-slate-400">
+                        <p className="font-medium text-slate-900 dark:text-slate-100">{nextStep}</p>
+                        {lead.nextStepNote && <p className="text-xs text-slate-500">{lead.nextStepNote}</p>}
+                        {lastContact && <p className="text-xs text-slate-400">Dernier contact {lastContact}</p>}
+                        <div className="text-xs text-slate-500">
                           <span>{lead.owner}</span>
                           {estimatedValue && <span className="ml-2">• {estimatedValue}</span>}
                         </div>
                       </div>
                       <div className="mt-3 flex flex-wrap justify-end gap-1">
                         {hasPermission('lead.edit') && (
-                          <RowActionButton label="Modifier" onClick={() => handleOpenEdit(lead)}>
-                            <IconEdit />
-                          </RowActionButton>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleOpenEdit(lead);
+                            }}
+                            className="rounded-lg p-2 text-slate-600 transition hover:bg-slate-100 hover:text-slate-800 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                            title="Modifier"
+                          >
+                            <span className="h-4 w-4"><IconEdit /></span>
+                          </button>
                         )}
                         {hasPermission('lead.contact') && (
-                          <RowActionButton label="Contacter" onClick={() => handleContactLead(lead)}>
-                            <IconPaperPlane />
-                          </RowActionButton>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleContactLead(lead);
+                            }}
+                            className="rounded-lg p-2 text-slate-600 transition hover:bg-blue-100 hover:text-blue-700 dark:text-slate-300 dark:hover:bg-blue-900/30 dark:hover:text-blue-200"
+                            title="Contacter"
+                          >
+                            <span className="h-4 w-4"><IconPaperPlane /></span>
+                          </button>
                         )}
                         {hasPermission('lead.convert') && (
-                          <RowActionButton label="Convertir en client" onClick={() => handleConvertToClient(lead)}>
-                            <IconConvert />
-                          </RowActionButton>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleConvertToClient(lead);
+                            }}
+                            className="rounded-lg p-2 text-slate-600 transition hover:bg-emerald-100 hover:text-emerald-700 dark:text-slate-300 dark:hover:bg-emerald-900/30 dark:hover:text-emerald-200"
+                            title="Convertir en client"
+                          >
+                            <span className="h-4 w-4"><IconConvert /></span>
+                          </button>
                         )}
                         {hasPermission('lead.delete') && (
-                          <RowActionButton label="Supprimer" tone="danger" onClick={() => handleDeleteLead(lead.id)}>
-                            <IconTrash />
-                          </RowActionButton>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleDeleteLead(lead.id);
+                            }}
+                            className="rounded-lg p-2 text-slate-600 transition hover:bg-rose-100 hover:text-rose-700 dark:text-slate-300 dark:hover:bg-rose-900/30 dark:hover:text-rose-200"
+                            title="Supprimer"
+                          >
+                            <span className="h-4 w-4"><IconTrash /></span>
+                          </button>
                         )}
                       </div>
                     </div>
                   );
                 })}
                 {!filteredLeads.length && (
-                  <p className="rounded-soft border border-dashed border-slate-200 bg-white/60 px-3 py-6 text-center text-xs text-slate-500">
-                    Aucun lead ne correspond aux filtres.
-                  </p>
+                  <div className="rounded-2xl border border-dashed border-slate-200 bg-white/60 p-8 text-center dark:border-slate-800 dark:bg-slate-900/60">
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Aucun lead ne correspond aux filtres.</p>
+                  </div>
                 )}
               </div>
             </div>
 
-            <p className="text-[11px] uppercase tracking-[0.2em] text-slate-400">{leadCount} leads</p>
-          </div>
-        ) : (
-          kanban
-        )}
-        </div>
-      </Card>
+            <div className="mt-4 text-center text-xs text-slate-500 dark:text-slate-400">
+              {visibleLeadCount} lead{visibleLeadCount > 1 ? 's' : ''}
+            </div>
+            </>
+          ) : (
+            kanban
+          )}
+      </div>
 
-      {activePanel === 'create' && (
-        <div ref={createSectionRef}>
-          <Card
-            title="Nouveau lead"
-            description="Renseignez les informations principales"
-            action={
-              <button
-                type="button"
-                className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-400 transition hover:text-slate-600"
-                onClick={closePanels}
-              >
-                Fermer
-              </button>
-            }
-            className="lead-card"
+      {showCreateLeadModal &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/40 backdrop-blur-md px-4 py-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-lead-title"
+            onClick={handleCloseCreateModal}
           >
-            <form onSubmit={handleCreateSubmit} className="space-y-6 text-sm text-slate-700">
-              {/* Section 1: Informations de contact */}
-              <section className="rounded-2xl border border-slate-200/60 bg-gradient-to-br from-white via-slate-50/30 to-white p-6 shadow-[0_4px_20px_-2px_rgba(0,0,0,0.08)]">
-                <div className="mb-5 flex items-center gap-3">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/80 text-sm font-bold text-white shadow-md">
-                    1
+            <div
+              className="relative w-full max-w-6xl max-h-[90vh] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl ring-1 ring-slate-900/10 transition dark:border-slate-700 dark:bg-slate-900"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <form
+                onSubmit={handleCreateSubmit}
+                className="flex flex-col gap-4 bg-white p-4 md:p-6 text-slate-900 dark:bg-slate-900 dark:text-slate-100 max-h-[90vh] overflow-y-auto"
+              >
+                {/* En-tête avec titre et bouton de fermeture */}
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-blue-500">
+                      CRÉER UN LEAD
+                    </span>
+                    <h2 id="create-lead-title" className="text-xl font-semibold text-slate-900 dark:text-slate-100">
+                      Nouveau lead
+                    </h2>
+                    <p className="max-w-lg text-xs text-slate-500 dark:text-slate-400">
+                      Renseignez les informations principales pour créer un nouveau lead.
+                    </p>
                   </div>
-                  <h3 className="text-base font-bold text-slate-900 tracking-tight">Informations de contact</h3>
+                  <button
+                    type="button"
+                    onClick={handleCloseCreateModal}
+                    className="ml-auto flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                    aria-label="Fermer"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
                 </div>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-company">
-                      Entreprise *
-                    </label>
-                    <input
-                      id="lead-company"
-                      value={leadForm.company}
-                      onChange={(event) => setLeadForm((draft) => ({ ...draft, company: event.target.value }))}
-                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-contact">
-                      Contact *
-                    </label>
-                    <input
-                      id="lead-contact"
-                      value={leadForm.contact}
-                      onChange={(event) => setLeadForm((draft) => ({ ...draft, contact: event.target.value }))}
-                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-phone">
-                      Téléphone
-                    </label>
-                    <input
-                      id="lead-phone"
-                      value={leadForm.phone}
-                      onChange={(event) => setLeadForm((draft) => ({ ...draft, phone: event.target.value }))}
-                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                    />
-                    {phoneDuplicate && <p className="text-[11px] font-medium text-rose-600">⚠️ Numéro déjà utilisé.</p>}
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-email">
-                      Email
-                    </label>
-                    <input
-                      id="lead-email"
-                      type="email"
-                      value={leadForm.email}
-                      onChange={(event) => setLeadForm((draft) => ({ ...draft, email: event.target.value }))}
-                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                    />
-                    {emailDuplicate && <p className="text-[11px] font-medium text-rose-600">⚠️ Email déjà utilisé.</p>}
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-address">
-                      Adresse
-                    </label>
-                    <input
-                      id="lead-address"
-                      value={leadForm.address}
-                      onChange={(event) => setLeadForm((draft) => ({ ...draft, address: event.target.value }))}
-                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                    />
-                  </div>
-                </div>
-              </section>
 
-              {/* Section 2: Détails commerciaux */}
-              <section className="rounded-2xl border border-slate-200/60 bg-gradient-to-br from-white via-slate-50/30 to-white p-6 shadow-[0_4px_20px_-2px_rgba(0,0,0,0.08)]">
-                <div className="mb-5 flex items-center gap-3">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/80 text-sm font-bold text-white shadow-md">
-                    2
-                  </div>
-                  <h3 className="text-base font-bold text-slate-900 tracking-tight">Détails commerciaux</h3>
-                </div>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-source-create">
-                      Source
-                    </label>
-                    <input
-                      id="lead-source-create"
-                      value={leadForm.source}
-                      onChange={(event) => setLeadForm((draft) => ({ ...draft, source: event.target.value }))}
-                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-segment-create">
-                      Segment
-                    </label>
-                    <input
-                      id="lead-segment-create"
-                      value={leadForm.segment}
-                      onChange={(event) => setLeadForm((draft) => ({ ...draft, segment: event.target.value }))}
-                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-status-create">
-                      Statut
-                    </label>
-                    <select
-                      id="lead-status-create"
-                      value={leadForm.status}
-                      onChange={(event) => setLeadForm((draft) => ({ ...draft, status: event.target.value as LeadStatus }))}
-                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                    >
-                      {pipelineStatuses.map((status) => (
-                        <option key={status} value={status}>
-                          {status}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-owner-create">
-                      Propriétaire
-                    </label>
-                    <select
-                      id="lead-owner-create"
-                      value={leadForm.owner}
-                      onChange={(event) => setLeadForm((draft) => ({ ...draft, owner: event.target.value }))}
-                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                    >
-                      {[leadForm.owner, ...owners]
-                        .filter((value, index, array) => array.indexOf(value) === index)
-                        .map((owner) => (
-                          <option key={owner} value={owner}>
-                            {owner}
-                          </option>
-                        ))}
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-value">
-                      Valeur estimée
-                    </label>
-                    <input
-                      id="lead-value"
-                      type="number"
-                      min="0"
-                      step="0.5"
-                      value={leadForm.estimatedValue}
-                      onChange={(event) => setLeadForm((draft) => ({ ...draft, estimatedValue: event.target.value }))}
-                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-company-select">
-                      Entreprise liée
-                    </label>
-                    <select
-                      id="lead-company-select"
-                      value={leadForm.companyId}
-                      onChange={(event) => setLeadForm((draft) => ({ ...draft, companyId: event.target.value }))}
-                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                    >
-                      <option value="">Aucune</option>
-                      {companies.map((company) => (
-                        <option key={company.id} value={company.id}>
-                          {company.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-support-type">
-                      Support
-                    </label>
-                    <select
-                      id="lead-support-type"
-                      value={leadForm.supportType}
-                      onChange={(event) => setLeadForm((draft) => ({ ...draft, supportType: event.target.value as SupportType }))}
-                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                    >
-                      {supportTypes.map((type) => (
-                        <option key={type} value={type}>
-                          {type}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <label
-                      className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400"
-                      htmlFor="lead-support-detail"
-                    >
-                      Détail support
-                    </label>
-                    <input
-                      id="lead-support-detail"
-                      value={leadForm.supportDetail}
-                      onChange={(event) => setLeadForm((draft) => ({ ...draft, supportDetail: event.target.value }))}
-                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                    />
-                  </div>
-                  <div className="md:col-span-2 space-y-2">
-                    <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-tags">
-                      Tags
-                    </label>
-                    <input
-                      id="lead-tags"
-                      value={leadForm.tags}
-                      onChange={(event) => setLeadForm((draft) => ({ ...draft, tags: event.target.value }))}
-                      placeholder="Séparés par des virgules"
-                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                    />
-                  </div>
-                </div>
-              </section>
+                {/* Contenu principal du formulaire */}
+                <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
+                  <div className="space-y-4">
+                    {feedback && (
+                      <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-800 dark:bg-rose-900/30 dark:text-rose-200">
+                        {feedback}
+                      </div>
+                    )}
 
-              {/* Section 3: Prochaine étape */}
-              <section className="rounded-2xl border border-slate-200/60 bg-gradient-to-br from-white via-slate-50/30 to-white p-6 shadow-[0_4px_20px_-2px_rgba(0,0,0,0.08)]">
-                <div className="mb-5 flex items-center gap-3">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/80 text-sm font-bold text-white shadow-md">
-                    3
+                    {/* Informations de contact */}
+                  <div className="space-y-4">
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div>
+                        <label
+                          className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400"
+                          htmlFor="modal-lead-company"
+                        >
+                          Entreprise *
+                        </label>
+                        <input
+                          id="modal-lead-company"
+                          type="text"
+                          value={leadForm.company}
+                          onChange={(event) => setLeadForm((draft) => ({ ...draft, company: event.target.value }))}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label
+                          className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400"
+                          htmlFor="modal-lead-contact"
+                        >
+                          Contact *
+                        </label>
+                        <input
+                          id="modal-lead-contact"
+                          type="text"
+                          value={leadForm.contact}
+                          onChange={(event) => setLeadForm((draft) => ({ ...draft, contact: event.target.value }))}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label
+                          className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400"
+                          htmlFor="modal-lead-phone"
+                        >
+                          Téléphone
+                        </label>
+                        <input
+                          id="modal-lead-phone"
+                          type="tel"
+                          value={leadForm.phone}
+                          onChange={(event) => setLeadForm((draft) => ({ ...draft, phone: event.target.value }))}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        />
+                        {phoneDuplicate && (
+                          <p className="mt-1 text-[10px] font-medium text-rose-600 dark:text-rose-400">
+                            ⚠️ Numéro déjà utilisé.
+                          </p>
+                        )}
+                      </div>
+                      <div>
+                        <label
+                          className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400"
+                          htmlFor="modal-lead-email"
+                        >
+                          Email
+                        </label>
+                        <input
+                          id="modal-lead-email"
+                          type="email"
+                          value={leadForm.email}
+                          onChange={(event) => setLeadForm((draft) => ({ ...draft, email: event.target.value }))}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        />
+                        {emailDuplicate && (
+                          <p className="mt-1 text-[10px] font-medium text-rose-600 dark:text-rose-400">
+                            ⚠️ Email déjà utilisé.
+                          </p>
+                        )}
+                      </div>
+                      <div className="md:col-span-2">
+                        <label
+                          className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400"
+                          htmlFor="modal-lead-address"
+                        >
+                          Adresse
+                        </label>
+                        <input
+                          id="modal-lead-address"
+                          type="text"
+                          value={leadForm.address}
+                          onChange={(event) => setLeadForm((draft) => ({ ...draft, address: event.target.value }))}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        />
+                      </div>
+                    </div>
                   </div>
-                  <h3 className="text-base font-bold text-slate-900 tracking-tight">Prochaine étape</h3>
-                </div>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-next-date">
-                      Date de l'action
-                    </label>
-                    <input
-                      id="lead-next-date"
-                      type="date"
-                      value={leadForm.nextStepDate}
-                      onChange={(event) => setLeadForm((draft) => ({ ...draft, nextStepDate: event.target.value }))}
-                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-400" htmlFor="lead-next-note">
-                      Note de l'action
-                    </label>
-                    <input
-                      id="lead-next-note"
-                      value={leadForm.nextStepNote}
-                      onChange={(event) => setLeadForm((draft) => ({ ...draft, nextStepNote: event.target.value }))}
-                      placeholder="Ex: Relance téléphonique, envoi devis..."
-                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                    />
-                  </div>
-                </div>
-              </section>
 
-              <div className="flex justify-end">
-                <Button type="submit" size="sm">
-                  Enregistrer le lead
-                </Button>
+                  {/* Détails commerciaux */}
+                  <div className="space-y-4">
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div>
+                        <label
+                          className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400"
+                          htmlFor="modal-lead-source"
+                        >
+                          Source
+                        </label>
+                        <input
+                          id="modal-lead-source"
+                          type="text"
+                          value={leadForm.source}
+                          onChange={(event) => setLeadForm((draft) => ({ ...draft, source: event.target.value }))}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        />
+                      </div>
+                      <div>
+                        <label
+                          className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400"
+                          htmlFor="modal-lead-segment"
+                        >
+                          Segment
+                        </label>
+                        <input
+                          id="modal-lead-segment"
+                          type="text"
+                          value={leadForm.segment}
+                          onChange={(event) => setLeadForm((draft) => ({ ...draft, segment: event.target.value }))}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        />
+                      </div>
+                      <div>
+                        <label
+                          className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400"
+                          htmlFor="modal-lead-status"
+                        >
+                          Statut
+                        </label>
+                        <select
+                          id="modal-lead-status"
+                          value={leadForm.status}
+                          onChange={(event) => setLeadForm((draft) => ({ ...draft, status: event.target.value as LeadStatus }))}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        >
+                          {pipelineStatuses.map((status) => (
+                            <option key={status} value={status}>
+                              {status}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label
+                          className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400"
+                          htmlFor="modal-lead-owner"
+                        >
+                          Propriétaire
+                        </label>
+                        <select
+                          id="modal-lead-owner"
+                          value={leadForm.owner}
+                          onChange={(event) => setLeadForm((draft) => ({ ...draft, owner: event.target.value }))}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        >
+                          {[leadForm.owner, ...owners]
+                            .filter((value, index, array) => array.indexOf(value) === index)
+                            .map((owner) => (
+                              <option key={owner} value={owner}>
+                                {owner}
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label
+                          className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400"
+                          htmlFor="modal-lead-value"
+                        >
+                          Valeur estimée
+                        </label>
+                        <input
+                          id="modal-lead-value"
+                          type="number"
+                          min="0"
+                          step="0.5"
+                          value={leadForm.estimatedValue}
+                          onChange={(event) => setLeadForm((draft) => ({ ...draft, estimatedValue: event.target.value }))}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        />
+                      </div>
+                      <div>
+                        <label
+                          className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400"
+                          htmlFor="modal-lead-company-select"
+                        >
+                          Entreprise liée
+                        </label>
+                        <select
+                          id="modal-lead-company-select"
+                          value={leadForm.companyId}
+                          onChange={(event) => setLeadForm((draft) => ({ ...draft, companyId: event.target.value }))}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        >
+                          <option value="">Aucune</option>
+                          {companies.map((company) => (
+                            <option key={company.id} value={company.id}>
+                              {company.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label
+                          className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400"
+                          htmlFor="modal-lead-support-type"
+                        >
+                          Support
+                        </label>
+                        <select
+                          id="modal-lead-support-type"
+                          value={leadForm.supportType}
+                          onChange={(event) => setLeadForm((draft) => ({ ...draft, supportType: event.target.value as SupportType }))}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        >
+                          {supportTypes.map((type) => (
+                            <option key={type} value={type}>
+                              {type}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label
+                          className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400"
+                          htmlFor="modal-lead-support-detail"
+                        >
+                          Détail support
+                        </label>
+                        <input
+                          id="modal-lead-support-detail"
+                          type="text"
+                          value={leadForm.supportDetail}
+                          onChange={(event) => setLeadForm((draft) => ({ ...draft, supportDetail: event.target.value }))}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        />
+                      </div>
+                      <div className="md:col-span-2">
+                        <label
+                          className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400"
+                          htmlFor="modal-lead-tags"
+                        >
+                          Tags
+                        </label>
+                        <input
+                          id="modal-lead-tags"
+                          type="text"
+                          value={leadForm.tags}
+                          onChange={(event) => setLeadForm((draft) => ({ ...draft, tags: event.target.value }))}
+                          placeholder="Séparés par des virgules"
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Prochaine étape */}
+                  <div className="space-y-4">
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div>
+                        <label
+                          className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400"
+                          htmlFor="modal-lead-next-date"
+                        >
+                          Date de l'action
+                        </label>
+                        <input
+                          id="modal-lead-next-date"
+                          type="date"
+                          value={leadForm.nextStepDate}
+                          onChange={(event) => setLeadForm((draft) => ({ ...draft, nextStepDate: event.target.value }))}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        />
+                      </div>
+                      <div>
+                        <label
+                          className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400"
+                          htmlFor="modal-lead-next-note"
+                        >
+                          Note de l'action
+                        </label>
+                        <input
+                          id="modal-lead-next-note"
+                          type="text"
+                          value={leadForm.nextStepNote}
+                          onChange={(event) => setLeadForm((draft) => ({ ...draft, nextStepNote: event.target.value }))}
+                          placeholder="Ex: Relance téléphonique, envoi devis..."
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        />
+                      </div>
+                    </div>
+                    </div>
+                  </div>
+
+                  {/* Section de suivi de prospection */}
+                  <div className="space-y-4">
+                  {/* Journal des activités */}
+                  <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-4 dark:border-slate-700 dark:bg-slate-800/50">
+                    <div className="mb-3 flex items-center gap-2">
+                      <div className="h-1 w-6 rounded-full bg-gradient-to-r from-blue-500 to-blue-400" />
+                      <h3 className="text-xs font-bold text-slate-900 tracking-tight dark:text-slate-100">
+                        Suivi de prospection
+                      </h3>
+                    </div>
+                    {pendingActivities.length === 0 ? (
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        Aucune activité pour le moment. Ajoutez des notes ou des appels ci-dessous.
+                      </p>
+                    ) : (
+                      <div className="relative">
+                        <div className="absolute left-3 top-0 bottom-0 w-0.5 bg-slate-200 dark:bg-slate-700" />
+                        <ul className="space-y-3">
+                          {pendingActivities.map((activity, index) => (
+                            <li key={index} className="relative flex gap-3">
+                              <div
+                                className={clsx(
+                                  'relative z-10 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border-2 border-white shadow-md dark:border-slate-800',
+                                  activity.type === 'call'
+                                    ? 'bg-gradient-to-br from-blue-500 to-blue-600'
+                                    : 'bg-gradient-to-br from-slate-400 to-slate-500'
+                                )}
+                              >
+                                {activity.type === 'call' ? (
+                                  <IconCall className="h-4 w-4 text-white" />
+                                ) : (
+                                  <IconNote className="h-4 w-4 text-white" />
+                                )}
+                              </div>
+                              <div className="flex-1 rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                                <div className="mb-1 flex items-center justify-between">
+                                  <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-slate-700 dark:text-slate-300">
+                                    {activity.type === 'call' ? (
+                                      <>
+                                        <IconCall className="h-3 w-3" />
+                                        Appel téléphonique
+                                      </>
+                                    ) : (
+                                      <>
+                                        <IconNote className="h-3 w-3" />
+                                        Note interne
+                                      </>
+                                    )}
+                                  </span>
+                                </div>
+                                <p className="text-xs text-slate-600 dark:text-slate-400">{activity.content}</p>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Ajouter une activité */}
+                  <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                    <form onSubmit={handleAddPendingActivity} className="space-y-3">
+                      <div className="flex gap-3 text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400">
+                        <label className="flex items-center gap-1.5 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="activity-type-modal"
+                            value="note"
+                            checked={noteType === 'note'}
+                            onChange={() => setNoteType('note')}
+                            className="cursor-pointer"
+                          />
+                          <IconNote className="h-3.5 w-3.5" />
+                          Note
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="activity-type-modal"
+                            value="call"
+                            checked={noteType === 'call'}
+                            onChange={() => setNoteType('call')}
+                            className="cursor-pointer"
+                          />
+                          <IconCall className="h-3.5 w-3.5" />
+                          Appel
+                        </label>
+                      </div>
+                      <textarea
+                        value={noteDraft}
+                        onChange={(event) => setNoteDraft(event.target.value)}
+                        placeholder={noteType === 'call' ? "Compte-rendu d'appel..." : 'Note interne...'}
+                        rows={4}
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                      />
+                      <button
+                        type="submit"
+                        disabled={!noteDraft.trim()}
+                        className="w-full rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500/60 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-blue-500 dark:hover:bg-blue-600"
+                      >
+                        Ajouter
+                      </button>
+                    </form>
+                  </div>
+                </div>
               </div>
-            </form>
-          </Card>
-        </div>
-      )}
+
+              {/* Pied de page avec boutons d'action */}
+                <div className="mt-2 flex flex-wrap items-center justify-end gap-3 border-t border-slate-200 pt-3 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={handleCloseCreateModal}
+                    className="rounded-lg border border-slate-200 bg-white px-4 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    type="submit"
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white shadow-lg shadow-blue-600/25 transition hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 dark:bg-blue-500 dark:hover:bg-blue-600"
+                  >
+                    Créer le lead
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {showEditLeadModal &&
+        editingLeadId &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/40 backdrop-blur-md px-4 py-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-lead-title"
+            onClick={handleCloseEditModal}
+          >
+            <div
+              className="relative w-full max-w-[95vw] max-h-[90vh] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl ring-1 ring-slate-900/10 transition dark:border-slate-700 dark:bg-slate-900"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <form
+                onSubmit={handleEditSubmit}
+                className="flex flex-col gap-4 bg-white p-4 md:p-6 text-slate-900 dark:bg-slate-900 dark:text-slate-100 max-h-[90vh] overflow-y-auto"
+              >
+                {/* En-tête avec titre et bouton de fermeture */}
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-blue-500">
+                      MODIFIER UN LEAD
+                    </span>
+                    <h2 id="edit-lead-title" className="text-xl font-semibold text-slate-900 dark:text-slate-100">
+                      {editingLead?.company || editingLead?.contact || 'Lead'}
+                    </h2>
+                    <p className="max-w-lg text-xs text-slate-500 dark:text-slate-400">
+                      Mettez à jour les informations du lead.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCloseEditModal}
+                    className="ml-auto flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                    aria-label="Fermer"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                {/* Contenu principal du formulaire */}
+                <div className="grid gap-6 lg:grid-cols-[1.5fr_1fr]">
+                  {/* Colonne gauche : Données du lead */}
+                  <div className="space-y-4 overflow-y-auto max-h-[calc(90vh-200px)] pr-2">
+                    {feedback && (
+                      <div className={clsx(
+                        "rounded-lg border px-3 py-2 text-xs",
+                        feedback.includes('mis à jour') || feedback.includes('créé')
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-200"
+                          : "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-800 dark:bg-rose-900/30 dark:text-rose-200"
+                      )}>
+                        {feedback}
+                      </div>
+                    )}
+
+                    {/* Informations de contact */}
+                    <div className="space-y-4">
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div>
+                        <label
+                          className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400"
+                          htmlFor="edit-modal-lead-company"
+                        >
+                          Entreprise *
+                        </label>
+                        <input
+                          id="edit-modal-lead-company"
+                          type="text"
+                          value={leadForm.company}
+                          onChange={(event) => setLeadForm((draft) => ({ ...draft, company: event.target.value }))}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label
+                          className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400"
+                          htmlFor="edit-modal-lead-contact"
+                        >
+                          Contact *
+                        </label>
+                        <input
+                          id="edit-modal-lead-contact"
+                          type="text"
+                          value={leadForm.contact}
+                          onChange={(event) => setLeadForm((draft) => ({ ...draft, contact: event.target.value }))}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label
+                          className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400"
+                          htmlFor="edit-modal-lead-phone"
+                        >
+                          Téléphone
+                        </label>
+                        <input
+                          id="edit-modal-lead-phone"
+                          type="tel"
+                          value={leadForm.phone}
+                          onChange={(event) => setLeadForm((draft) => ({ ...draft, phone: event.target.value }))}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        />
+                        {phoneDuplicate && (
+                          <p className="mt-1 text-[10px] font-medium text-rose-600 dark:text-rose-400">
+                            ⚠️ Numéro déjà utilisé.
+                          </p>
+                        )}
+                      </div>
+                      <div>
+                        <label
+                          className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400"
+                          htmlFor="edit-modal-lead-email"
+                        >
+                          Email
+                        </label>
+                        <input
+                          id="edit-modal-lead-email"
+                          type="email"
+                          value={leadForm.email}
+                          onChange={(event) => setLeadForm((draft) => ({ ...draft, email: event.target.value }))}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        />
+                        {emailDuplicate && (
+                          <p className="mt-1 text-[10px] font-medium text-rose-600 dark:text-rose-400">
+                            ⚠️ Email déjà utilisé.
+                          </p>
+                        )}
+                      </div>
+                      <div className="md:col-span-2">
+                        <label
+                          className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400"
+                          htmlFor="edit-modal-lead-address"
+                        >
+                          Adresse
+                        </label>
+                        <input
+                          id="edit-modal-lead-address"
+                          type="text"
+                          value={leadForm.address}
+                          onChange={(event) => setLeadForm((draft) => ({ ...draft, address: event.target.value }))}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        />
+                      </div>
+                    </div>
+                    </div>
+
+                  {/* Détails commerciaux */}
+                  <div className="space-y-4">
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div>
+                        <label
+                          className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400"
+                          htmlFor="edit-modal-lead-source"
+                        >
+                          Source
+                        </label>
+                        <input
+                          id="edit-modal-lead-source"
+                          type="text"
+                          value={leadForm.source}
+                          onChange={(event) => setLeadForm((draft) => ({ ...draft, source: event.target.value }))}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        />
+                      </div>
+                      <div>
+                        <label
+                          className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400"
+                          htmlFor="edit-modal-lead-segment"
+                        >
+                          Segment
+                        </label>
+                        <input
+                          id="edit-modal-lead-segment"
+                          type="text"
+                          value={leadForm.segment}
+                          onChange={(event) => setLeadForm((draft) => ({ ...draft, segment: event.target.value }))}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        />
+                      </div>
+                      <div>
+                        <label
+                          className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400"
+                          htmlFor="edit-modal-lead-status"
+                        >
+                          Statut
+                        </label>
+                        <select
+                          id="edit-modal-lead-status"
+                          value={leadForm.status}
+                          onChange={(event) => setLeadForm((draft) => ({ ...draft, status: event.target.value as LeadStatus }))}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        >
+                          {pipelineStatuses.map((status) => (
+                            <option key={status} value={status}>
+                              {status}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label
+                          className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400"
+                          htmlFor="edit-modal-lead-owner"
+                        >
+                          Propriétaire
+                        </label>
+                        <select
+                          id="edit-modal-lead-owner"
+                          value={leadForm.owner}
+                          onChange={(event) => setLeadForm((draft) => ({ ...draft, owner: event.target.value }))}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        >
+                          {[leadForm.owner, ...owners]
+                            .filter((value, index, array) => array.indexOf(value) === index)
+                            .map((owner) => (
+                              <option key={owner} value={owner}>
+                                {owner}
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label
+                          className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400"
+                          htmlFor="edit-modal-lead-value"
+                        >
+                          Valeur estimée
+                        </label>
+                        <input
+                          id="edit-modal-lead-value"
+                          type="number"
+                          min="0"
+                          step="0.5"
+                          value={leadForm.estimatedValue}
+                          onChange={(event) => setLeadForm((draft) => ({ ...draft, estimatedValue: event.target.value }))}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        />
+                      </div>
+                      <div>
+                        <label
+                          className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400"
+                          htmlFor="edit-modal-lead-company-select"
+                        >
+                          Entreprise liée
+                        </label>
+                        <select
+                          id="edit-modal-lead-company-select"
+                          value={leadForm.companyId}
+                          onChange={(event) => setLeadForm((draft) => ({ ...draft, companyId: event.target.value }))}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        >
+                          <option value="">Aucune</option>
+                          {companies.map((company) => (
+                            <option key={company.id} value={company.id}>
+                              {company.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label
+                          className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400"
+                          htmlFor="edit-modal-lead-support-type"
+                        >
+                          Support
+                        </label>
+                        <select
+                          id="edit-modal-lead-support-type"
+                          value={leadForm.supportType}
+                          onChange={(event) => setLeadForm((draft) => ({ ...draft, supportType: event.target.value as SupportType }))}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        >
+                          {supportTypes.map((type) => (
+                            <option key={type} value={type}>
+                              {type}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label
+                          className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400"
+                          htmlFor="edit-modal-lead-support-detail"
+                        >
+                          Détail support
+                        </label>
+                        <input
+                          id="edit-modal-lead-support-detail"
+                          type="text"
+                          value={leadForm.supportDetail}
+                          onChange={(event) => setLeadForm((draft) => ({ ...draft, supportDetail: event.target.value }))}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        />
+                      </div>
+                      <div className="md:col-span-2">
+                        <label
+                          className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400"
+                          htmlFor="edit-modal-lead-tags"
+                        >
+                          Tags
+                        </label>
+                        <input
+                          id="edit-modal-lead-tags"
+                          type="text"
+                          value={leadForm.tags}
+                          onChange={(event) => setLeadForm((draft) => ({ ...draft, tags: event.target.value }))}
+                          placeholder="Séparés par des virgules"
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        />
+                      </div>
+                    </div>
+                    </div>
+
+                  {/* Prochaine étape */}
+                  <div className="space-y-4">
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div>
+                        <label
+                          className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400"
+                          htmlFor="edit-modal-lead-next-date"
+                        >
+                          Date de l'action
+                        </label>
+                        <input
+                          id="edit-modal-lead-next-date"
+                          type="date"
+                          value={leadForm.nextStepDate}
+                          onChange={(event) => setLeadForm((draft) => ({ ...draft, nextStepDate: event.target.value }))}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        />
+                      </div>
+                      <div>
+                        <label
+                          className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400"
+                          htmlFor="edit-modal-lead-next-note"
+                        >
+                          Note de l'action
+                        </label>
+                        <input
+                          id="edit-modal-lead-next-note"
+                          type="text"
+                          value={leadForm.nextStepNote}
+                          onChange={(event) => setLeadForm((draft) => ({ ...draft, nextStepNote: event.target.value }))}
+                          placeholder="Ex: Relance téléphonique, envoi devis..."
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  </div>
+
+                  {/* Colonne droite : Historique de suivi */}
+                  <div className="space-y-4 overflow-y-auto max-h-[calc(90vh-200px)]">
+                    {/* Journal des activités */}
+                    <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+                      <div className="mb-3 flex items-center gap-2">
+                        <div className="h-1 w-6 rounded-full bg-gradient-to-r from-blue-500 to-blue-400" />
+                        <h3 className="text-xs font-bold text-slate-900 tracking-tight dark:text-slate-100">
+                          Historique de suivi
+                        </h3>
+                      </div>
+                      {(!editingLead?.activities || editingLead.activities.length === 0) && pendingActivities.length === 0 ? (
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          Aucune activité pour le moment. Ajoutez des notes ou des appels ci-dessous.
+                        </p>
+                      ) : (
+                        <div className="relative">
+                          <div className="absolute left-3 top-0 bottom-0 w-0.5 bg-slate-200 dark:bg-slate-700" />
+                          <ul className="space-y-3">
+                            {/* Afficher d'abord les activités existantes du lead */}
+                            {editingLead?.activities?.map((activity) => (
+                              <li key={activity.id} className="relative flex gap-3">
+                                <div
+                                  className={clsx(
+                                    'relative z-10 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border-2 border-white shadow-md dark:border-slate-800',
+                                    activity.type === 'call'
+                                      ? 'bg-gradient-to-br from-blue-500 to-blue-600'
+                                      : 'bg-gradient-to-br from-slate-400 to-slate-500'
+                                  )}
+                                >
+                                  {activity.type === 'call' ? (
+                                    <IconCall className="h-4 w-4 text-white" />
+                                  ) : (
+                                    <IconNote className="h-4 w-4 text-white" />
+                                  )}
+                                </div>
+                                <div className="flex-1 rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                                  <div className="mb-1 flex items-center justify-between">
+                                    <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-slate-700 dark:text-slate-300">
+                                      {activity.type === 'call' ? (
+                                        <>
+                                          <IconCall className="h-3 w-3" />
+                                          Appel téléphonique
+                                        </>
+                                      ) : (
+                                        <>
+                                          <IconNote className="h-3 w-3" />
+                                          Note interne
+                                        </>
+                                      )}
+                                    </span>
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                                        {formatDateTime(activity.createdAt)}
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (editingLeadId && confirm(`Êtes-vous sûr de vouloir supprimer cette ${activity.type === 'call' ? 'appel' : 'note'} ?`)) {
+                                            removeLeadActivity(editingLeadId, activity.id);
+                                            setFeedback(`${activity.type === 'call' ? 'Appel' : 'Note'} supprimé(e).`);
+                                          }
+                                        }}
+                                        className="flex h-6 w-6 items-center justify-center rounded-lg text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-900/30 dark:hover:text-rose-400"
+                                        aria-label={`Supprimer ${activity.type === 'call' ? "l'appel" : 'la note'}`}
+                                      >
+                                        <IconTrash />
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <p className="text-xs text-slate-600 dark:text-slate-400">{activity.content}</p>
+                                </div>
+                              </li>
+                            ))}
+                            {/* Afficher ensuite les activités en attente */}
+                            {pendingActivities.map((activity, index) => (
+                              <li key={`pending-${index}`} className="relative flex gap-3">
+                                <div
+                                  className={clsx(
+                                    'relative z-10 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border-2 border-white shadow-md dark:border-slate-800',
+                                    activity.type === 'call'
+                                      ? 'bg-gradient-to-br from-blue-500 to-blue-600'
+                                      : 'bg-gradient-to-br from-slate-400 to-slate-500'
+                                  )}
+                                >
+                                  {activity.type === 'call' ? (
+                                    <IconCall className="h-4 w-4 text-white" />
+                                  ) : (
+                                    <IconNote className="h-4 w-4 text-white" />
+                                  )}
+                                </div>
+                                <div className="flex-1 rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                                  <div className="mb-1 flex items-center justify-between">
+                                    <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-slate-700 dark:text-slate-300">
+                                      {activity.type === 'call' ? (
+                                        <>
+                                          <IconCall className="h-3 w-3" />
+                                          Appel téléphonique
+                                        </>
+                                      ) : (
+                                        <>
+                                          <IconNote className="h-3 w-3" />
+                                          Note interne
+                                        </>
+                                      )}
+                                    </span>
+                                  </div>
+                                  <p className="text-xs text-slate-600 dark:text-slate-400">{activity.content}</p>
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Ajouter une activité */}
+                    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                      <form onSubmit={handleAddPendingActivity} className="space-y-3">
+                        <div className="flex gap-3 text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400">
+                          <label className="flex items-center gap-1.5 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="activity-type-edit-modal"
+                              value="note"
+                              checked={noteType === 'note'}
+                              onChange={() => setNoteType('note')}
+                              className="cursor-pointer"
+                            />
+                            <IconNote className="h-3.5 w-3.5" />
+                            Note
+                          </label>
+                          <label className="flex items-center gap-1.5 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="activity-type-edit-modal"
+                              value="call"
+                              checked={noteType === 'call'}
+                              onChange={() => setNoteType('call')}
+                              className="cursor-pointer"
+                            />
+                            <IconCall className="h-3.5 w-3.5" />
+                            Appel
+                          </label>
+                        </div>
+                        <textarea
+                          value={noteDraft}
+                          onChange={(event) => setNoteDraft(event.target.value)}
+                          placeholder={noteType === 'call' ? "Compte-rendu d'appel..." : 'Note interne...'}
+                          rows={4}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                        />
+                        <button
+                          type="submit"
+                          disabled={!noteDraft.trim()}
+                          className="w-full rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500/60 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-blue-500 dark:hover:bg-blue-600"
+                        >
+                          Ajouter
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Pied de page avec boutons d'action */}
+                <div className="mt-2 flex flex-wrap items-center justify-end gap-3 border-t border-slate-200 pt-3 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={handleCloseEditModal}
+                    className="rounded-lg border border-slate-200 bg-white px-4 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    type="submit"
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white shadow-lg shadow-blue-600/25 transition hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 dark:bg-blue-500 dark:hover:bg-blue-600"
+                  >
+                    Mettre à jour
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>,
+          document.body
+        )}
 
       {activePanel === 'edit' && editingLead && (
         <div ref={editSectionRef}>

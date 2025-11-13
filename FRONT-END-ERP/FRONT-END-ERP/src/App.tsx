@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Navigate, Outlet, Route, Routes } from 'react-router-dom';
-import { Layout } from './layout/Layout';
 import DashboardPage from './pages/DashboardPage';
 import ClientsPage from './pages/ClientsPage';
 import LeadPage from './pages/LeadPage';
@@ -9,13 +8,23 @@ import PurchasesPage from './pages/PurchasesPage';
 import PlanningPage from './pages/PlanningPage';
 import StatsPage from './pages/StatsPage';
 import SettingsPage from './pages/SettingsPage';
-import DocumentsPage from './pages/DocumentsPage';
 import LoginPage from './pages/LoginPage';
 import UsersAdminPage from './pages/UsersAdminPage';
+import WorkspacePortalPage from './pages/WorkspacePortalPage';
+import AccountingDashboardPage from './pages/comptabilite/AccountingDashboardPage';
+import ClientInvoicesPage from './pages/comptabilite/ClientInvoicesPage';
+import VatPage from './pages/comptabilite/VatPage';
+import AccountingExportPage from './pages/comptabilite/AccountingExportPage';
+import AdministratifLayout from './pages/administratif/AdministratifLayout';
+import AdministratifOverviewPage from './pages/administratif/OverviewPage';
+import ProjectsPage from './pages/administratif/ProjectsPage';
+import TeamPage from './pages/administratif/TeamPage';
+import AdministratifDocumentsPage from './pages/AdministratifDocumentsPage';
 import { useAppData } from './store/useAppData';
-import { SIDEBAR_NAVIGATION_LINKS } from './layout/navigationLinks';
 import type { AppPageKey } from './lib/rbac';
 import { useBackendSync } from './hooks/useBackendSync';
+import { WorkspaceModuleRoute } from './workspace/WorkspaceModuleRoute';
+import { WORKSPACE_MODULES } from './workspace/modules';
 
 const detectMobileUserAgent = (userAgent: string) =>
   /android|iphone|ipad|ipod|mobile|blackberry|iemobile|opera mini/i.test(
@@ -46,18 +55,6 @@ const shouldRenderMobile = () => {
   return window.matchMedia('(max-width: 768px)').matches;
 };
 
-const PrivateLayout = () => {
-  const isAuthenticated = useAppData((state) => state.currentUserId !== null);
-  if (!isAuthenticated) {
-    return <Navigate to="/connexion" replace />;
-  }
-  return (
-    <Layout>
-      <Outlet />
-    </Layout>
-  );
-};
-
 const RequirePage = ({ page, children }: { page: AppPageKey; children: JSX.Element }) => {
   const isAuthenticated = useAppData((state) => state.currentUserId !== null);
   const hasPageAccess = useAppData((state) => state.hasPageAccess);
@@ -66,8 +63,15 @@ const RequirePage = ({ page, children }: { page: AppPageKey; children: JSX.Eleme
     if (!isAuthenticated) {
       return '/connexion';
     }
-    const fallback = SIDEBAR_NAVIGATION_LINKS.find((link) => hasPageAccess(link.page));
-    return fallback ? fallback.to : '/connexion';
+    for (const module of WORKSPACE_MODULES) {
+      const accessibleItem = module.nav
+        .flatMap((section) => section.items)
+        .find((item) => hasPageAccess(item.page));
+      if (accessibleItem) {
+        return accessibleItem.to;
+      }
+    }
+    return '/';
   }, [hasPageAccess, isAuthenticated]);
 
   if (!isAuthenticated) {
@@ -125,9 +129,18 @@ const App = () => {
   return (
     <Routes>
       <Route path="/connexion" element={<LoginPage />} />
-      <Route element={<PrivateLayout />}>
+      <Route
+        path="/"
+        element={
+          <RequirePage page="dashboard">
+            <WorkspacePortalPage />
+          </RequirePage>
+        }
+      />
+      <Route path="/workspace/crm" element={<WorkspaceModuleRoute moduleId="crm" />}>
+        <Route index element={<Navigate to="tableau-de-bord" replace />} />
         <Route
-          path="/"
+          path="tableau-de-bord"
           element={
             <RequirePage page="dashboard">
               <DashboardPage />
@@ -135,7 +148,7 @@ const App = () => {
           }
         />
         <Route
-          path="/clients"
+          path="clients"
           element={
             <RequirePage page="clients">
               <ClientsPage />
@@ -143,7 +156,7 @@ const App = () => {
           }
         />
         <Route
-          path="/lead"
+          path="leads"
           element={
             <RequirePage page="leads">
               <LeadPage />
@@ -151,7 +164,7 @@ const App = () => {
           }
         />
         <Route
-          path="/service"
+          path="services"
           element={
             <RequirePage page="service">
               <ServicePage />
@@ -159,23 +172,11 @@ const App = () => {
           }
         />
         <Route
-          path="/achats"
-          element={
-            <RequirePage page="achats">
-              <PurchasesPage />
-            </RequirePage>
-          }
+          path="achats"
+          element={<Navigate to="/workspace/comptabilite/achats" replace />}
         />
         <Route
-          path="/documents"
-          element={
-            <RequirePage page="documents">
-              <DocumentsPage />
-            </RequirePage>
-          }
-        />
-        <Route
-          path="/planning"
+          path="planning"
           element={
             <RequirePage page="planning">
               <PlanningPage />
@@ -183,15 +184,111 @@ const App = () => {
           }
         />
         <Route
-          path="/stats"
+          path="statistiques"
           element={
             <RequirePage page="stats">
               <StatsPage />
             </RequirePage>
           }
         />
+      </Route>
+      <Route path="/workspace/administratif" element={<WorkspaceModuleRoute moduleId="administratif" />}>
         <Route
-          path="/parametres"
+          element={
+            <RequirePage page="administratif">
+              <AdministratifLayout />
+            </RequirePage>
+          }
+        >
+          <Route
+            index
+            element={
+              <RequirePage page="administratif.overview">
+                <AdministratifOverviewPage />
+              </RequirePage>
+            }
+          />
+          <Route
+            path="projets"
+            element={
+              <RequirePage page="administratif.projects">
+                <ProjectsPage />
+              </RequirePage>
+            }
+          />
+          <Route
+            path="equipe"
+            element={
+              <RequirePage page="administratif.team">
+                <TeamPage />
+              </RequirePage>
+            }
+          />
+        </Route>
+      </Route>
+      <Route path="/workspace/comptabilite" element={<WorkspaceModuleRoute moduleId="comptabilite" />}>
+        <Route
+          element={
+            <RequirePage page="comptabilite">
+              <Outlet />
+            </RequirePage>
+          }
+        >
+          <Route index element={<Navigate to="dashboard" replace />} />
+          <Route
+            path="dashboard"
+            element={
+              <RequirePage page="comptabilite.dashboard">
+                <AccountingDashboardPage />
+              </RequirePage>
+            }
+          />
+          <Route
+            path="achats"
+            element={
+              <RequirePage page="comptabilite.achats">
+                <PurchasesPage />
+              </RequirePage>
+            }
+          />
+          <Route
+            path="factures-clients"
+            element={
+              <RequirePage page="comptabilite.facturesClients">
+                <ClientInvoicesPage />
+              </RequirePage>
+            }
+          />
+          <Route
+            path="tva"
+            element={
+              <RequirePage page="comptabilite.tva">
+                <VatPage />
+              </RequirePage>
+            }
+          />
+          <Route
+            path="export"
+            element={
+              <RequirePage page="comptabilite.export">
+                <AccountingExportPage />
+              </RequirePage>
+            }
+          />
+          <Route
+            path="documents"
+            element={
+              <RequirePage page="comptabilite.documents">
+                <AdministratifDocumentsPage />
+              </RequirePage>
+            }
+          />
+        </Route>
+      </Route>
+      <Route path="/workspace/parametres" element={<WorkspaceModuleRoute moduleId="parametres" />}>
+        <Route index element={<Navigate to="general?tab=profile" replace />} />
+        <Route
+          path="general"
           element={
             <RequirePage page="parametres">
               <SettingsPage />
@@ -199,7 +296,7 @@ const App = () => {
           }
         />
         <Route
-          path="/parametres/utilisateurs"
+          path="utilisateurs"
           element={
             <RequirePage page="parametres.utilisateurs">
               <UsersAdminPage />
@@ -207,6 +304,17 @@ const App = () => {
           }
         />
       </Route>
+      {/* Redirections anciennes URLs */}
+      <Route path="/tableau-de-bord" element={<Navigate to="/workspace/crm/tableau-de-bord" replace />} />
+      <Route path="/clients" element={<Navigate to="/workspace/crm/clients" replace />} />
+      <Route path="/lead" element={<Navigate to="/workspace/crm/leads" replace />} />
+      <Route path="/service" element={<Navigate to="/workspace/crm/services" replace />} />
+      <Route path="/achats" element={<Navigate to="/workspace/comptabilite/achats" replace />} />
+      <Route path="/planning" element={<Navigate to="/workspace/crm/planning" replace />} />
+      <Route path="/stats" element={<Navigate to="/workspace/crm/statistiques" replace />} />
+      <Route path="/parametres" element={<Navigate to="/workspace/parametres/general?tab=profile" replace />} />
+      <Route path="/parametres/utilisateurs" element={<Navigate to="/workspace/parametres/utilisateurs" replace />} />
+      <Route path="/administratif/*" element={<Navigate to="/workspace/administratif" replace />} />
       <Route
         path="*"
         element={<Navigate to={isAuthenticated ? '/' : '/connexion'} replace />}

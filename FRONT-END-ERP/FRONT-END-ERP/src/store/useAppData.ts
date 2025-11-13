@@ -468,6 +468,7 @@ type AppState = {
   updateLead: (leadId: string, updates: Partial<Omit<Lead, 'id'>>) => Lead | null;
   removeLead: (leadId: string) => void;
   recordLeadActivity: (leadId: string, activity: Omit<LeadActivity, 'id' | 'createdAt'>) => LeadActivity | null;
+  removeLeadActivity: (leadId: string, activityId: string) => boolean;
   bulkUpdateLeads: (leadIds: string[], updates: Partial<Omit<Lead, 'id' | 'activities'>>) => void;
   addClient: (
     payload: Omit<Client, 'id' | 'lastService' | 'contacts'> &
@@ -545,6 +546,12 @@ type AppState = {
   ) => ProjectTask | null;
   updateProjectTask: (projectId: string, taskId: string, updates: Partial<ProjectTask>) => void;
   removeProjectTask: (projectId: string, taskId: string) => void;
+  addProject: (payload: Omit<Project, 'id' | 'tasks'> & { tasks?: ProjectTask[] }) => Project;
+  updateProject: (projectId: string, updates: Partial<Omit<Project, 'id'>>) => Project | null;
+  removeProject: (projectId: string) => void;
+  addProjectMember: (payload: Omit<ProjectMember, 'id'>) => ProjectMember;
+  updateProjectMember: (memberId: string, updates: Partial<Omit<ProjectMember, 'id'>>) => ProjectMember | null;
+  removeProjectMember: (memberId: string) => void;
   updateUserProfile: (updates: Partial<Omit<UserProfile, 'id'>>) => void;
   updateNotificationPreferences: (updates: Partial<NotificationPreferences>) => void;
   updateUserAvatar: (avatarUrl: string) => void;
@@ -1228,7 +1235,7 @@ const initialDocuments: DocumentRecord[] = [
     id: 'doc-preavis-textiluxe',
     title: 'Préavis Textiluxe – Conditions 2024',
     category: 'Juridique',
-    description: 'Clausier et mentions légales validés pour l’extension du contrat Textiluxe.',
+    description: "Clausier et mentions légales validés pour l'extension du contrat Textiluxe.",
     updatedAt: '2024-03-28T11:20:00+01:00',
     owner: 'Sophie Bernard',
     companyId: 'co2',
@@ -1461,7 +1468,7 @@ const initialLeads: Lead[] = [
       {
         id: 'la2',
         type: 'call',
-        content: 'Appel de qualification, envoi d’une pré-étude.',
+        content: "Appel de qualification, envoi d'une pré-étude.",
         createdAt: '2024-04-08T10:15:00+02:00',
       },
     ],
@@ -1490,7 +1497,7 @@ const initialLeads: Lead[] = [
       {
         id: 'la3',
         type: 'note',
-        content: 'Formulaire web – besoin d’un entretien canapé avant emménagement.',
+        content: "Formulaire web – besoin d'un entretien canapé avant emménagement.",
         createdAt: '2024-04-06T09:32:00+02:00',
       },
     ],
@@ -1828,7 +1835,7 @@ const initialPurchases: Purchase[] = [
 
 const kpis: Kpi[] = [
   { label: 'Prestations', day: 3, week: 18 },
-  { label: 'Chiffre d’affaires estimé', day: 540, week: 3120 },
+  { label: "Chiffre d'affaires estimé", day: 540, week: 3120 },
   { label: 'Durée totale', day: 6.5, week: 32 },
 ];
 
@@ -2336,6 +2343,23 @@ export const useAppData = create<AppState>((set, get) => ({
       }),
     }));
     return recorded;
+  },
+  removeLeadActivity: (leadId, activityId) => {
+    let removed = false;
+    set((state) => ({
+      leads: state.leads.map((lead) => {
+        if (lead.id !== leadId) {
+          return lead;
+        }
+        const nextActivities = lead.activities.filter((activity) => activity.id !== activityId);
+        removed = nextActivities.length < lead.activities.length;
+        return {
+          ...lead,
+          activities: nextActivities,
+        };
+      }),
+    }));
+    return removed;
   },
   bulkUpdateLeads: (leadIds, updates) => {
     set((state) => ({
@@ -3511,6 +3535,118 @@ export const useAppData = create<AppState>((set, get) => ({
       };
     });
   },
+  addProject: (payload) => {
+    const projectId = `p${Date.now()}`;
+    const newProject: Project = {
+      id: projectId,
+      name: payload.name,
+      clientId: payload.clientId,
+      manager: payload.manager,
+      start: payload.start,
+      end: payload.end,
+      status: payload.status,
+      memberIds: payload.memberIds ?? [],
+      tasks: payload.tasks ?? [],
+    };
+    set((state) => ({
+      projects: [...state.projects, newProject],
+      stats: {
+        ...state.stats,
+        projectVelocity: deriveVelocity([...state.projects, newProject]),
+      },
+    }));
+    return newProject;
+  },
+  updateProject: (projectId, updates) => {
+    let updated: Project | null = null;
+    set((state) => {
+      const projects = state.projects.map((project) => {
+        if (project.id !== projectId) {
+          return project;
+        }
+        const nextProject: Project = { ...project, ...updates };
+        updated = nextProject;
+        return nextProject;
+      });
+
+      return {
+        projects,
+        stats: {
+          ...state.stats,
+          projectVelocity: deriveVelocity(projects),
+        },
+      };
+    });
+    return updated;
+  },
+  removeProject: (projectId) => {
+    set((state) => {
+      const projects = state.projects.filter((project) => project.id !== projectId);
+      return {
+        projects,
+        stats: {
+          ...state.stats,
+          projectVelocity: deriveVelocity(projects),
+        },
+      };
+    });
+  },
+  addProjectMember: (payload) => {
+    const memberId = `member-${Date.now()}`;
+    const avatarColors = [
+      '#0f172a',
+      '#2563eb',
+      '#0f766e',
+      '#7c3aed',
+      '#1d4ed8',
+      '#be123c',
+      '#0ea5e9',
+      '#dc2626',
+      '#16a34a',
+      '#ca8a04',
+    ];
+    const randomColor = avatarColors[Math.floor(Math.random() * avatarColors.length)];
+    const newMember: ProjectMember = {
+      id: memberId,
+      firstName: payload.firstName,
+      lastName: payload.lastName,
+      role: payload.role,
+      email: payload.email,
+      phone: payload.phone,
+      avatarUrl: payload.avatarUrl,
+      avatarColor: payload.avatarColor ?? randomColor,
+      capacity: payload.capacity,
+    };
+    set((state) => ({
+      projectMembers: [...state.projectMembers, newMember],
+    }));
+    return newMember;
+  },
+  updateProjectMember: (memberId, updates) => {
+    let updated: ProjectMember | null = null;
+    set((state) => {
+      const projectMembers = state.projectMembers.map((member) => {
+        if (member.id !== memberId) {
+          return member;
+        }
+        const nextMember: ProjectMember = { ...member, ...updates };
+        updated = nextMember;
+        return nextMember;
+      });
+      return { projectMembers };
+    });
+    return updated;
+  },
+  removeProjectMember: (memberId) => {
+    set((state) => {
+      const projectMembers = state.projectMembers.filter((member) => member.id !== memberId);
+      const projects = state.projects.map((project) => ({
+        ...project,
+        memberIds: project.memberIds.filter((id) => id !== memberId),
+      }));
+      return { projectMembers, projects };
+    });
+  },
   updateUserProfile: (updates) => {
     set((state) => {
       const nextProfile = {
@@ -4324,3 +4460,5 @@ export const useAppData = create<AppState>((set, get) => ({
     return { success: true };
   },
 }));
+
+export const normalisePhone = (value: string) => value.replace(/\s+/g, '').trim();

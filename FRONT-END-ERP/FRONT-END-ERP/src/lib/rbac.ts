@@ -9,6 +9,18 @@ export type AppPageKey =
   | 'documents'
   | 'planning'
   | 'stats'
+  | 'administratif'
+  | 'administratif.overview'
+  | 'administratif.fournisseurs'
+  | 'administratif.projects'
+  | 'administratif.team'
+  | 'comptabilite'
+  | 'comptabilite.dashboard'
+  | 'comptabilite.achats'
+  | 'comptabilite.facturesClients'
+  | 'comptabilite.tva'
+  | 'comptabilite.export'
+  | 'comptabilite.documents'
   | 'parametres'
   | 'parametres.utilisateurs';
 
@@ -21,6 +33,18 @@ export const APP_PAGE_OPTIONS: { key: AppPageKey; label: string }[] = [
   { key: 'documents', label: 'Documents' },
   { key: 'planning', label: 'Planning' },
   { key: 'stats', label: 'Statistiques' },
+  { key: 'administratif', label: 'Gestion de projet et équipe' },
+  { key: 'administratif.overview', label: 'Gestion de projet et équipe · Synthèse' },
+  { key: 'administratif.fournisseurs', label: 'Gestion de projet et équipe · Fournisseurs' },
+  { key: 'administratif.projects', label: 'Gestion de projet et équipe · Projets' },
+  { key: 'administratif.team', label: 'Gestion de projet et équipe · Équipe' },
+  { key: 'comptabilite', label: 'Finance & document' },
+  { key: 'comptabilite.dashboard', label: 'Finance & document · Tableau de bord' },
+  { key: 'comptabilite.achats', label: 'Finance & document · Achats' },
+  { key: 'comptabilite.facturesClients', label: 'Finance & document · Factures clients' },
+  { key: 'comptabilite.tva', label: 'Finance & document · TVA' },
+  { key: 'comptabilite.export', label: 'Finance & document · Export' },
+  { key: 'comptabilite.documents', label: 'Finance & document · Documents' },
   { key: 'parametres', label: 'Paramètres' },
   { key: 'parametres.utilisateurs', label: 'Paramètres · Utilisateurs' },
 ];
@@ -50,8 +74,7 @@ export type PermissionKey =
   | 'settings.companies'
   | 'settings.signatures'
   | 'settings.catalog'
-  | 'settings.users'
-  | 'settings.sidebar';
+  | 'settings.users';
 
 export const PERMISSION_OPTIONS: { key: PermissionKey; label: string }[] = [
   { key: 'service.create', label: 'Créer un service' },
@@ -79,7 +102,6 @@ export const PERMISSION_OPTIONS: { key: PermissionKey; label: string }[] = [
   { key: 'settings.signatures', label: 'Gérer les signatures email' },
   { key: 'settings.catalog', label: 'Gérer le catalogue services' },
   { key: 'settings.users', label: 'Gérer les utilisateurs' },
-  { key: 'settings.sidebar', label: 'Configurer la sidebar' },
 ];
 
 export const USER_ROLE_LABELS: Record<UserRole, string> = {

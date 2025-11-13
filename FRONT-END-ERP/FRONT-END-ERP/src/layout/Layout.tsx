@@ -17,6 +17,7 @@ export const Layout = ({ children }: LayoutProps) => {
     return window.innerWidth <= 1366;
   });
   const [isDesktopSidebarHidden, setIsDesktopSidebarHidden] = useState(false);
+  const [hasScrolled, setHasScrolled] = useState(false);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -42,6 +43,22 @@ export const Layout = ({ children }: LayoutProps) => {
     mediaQuery.addListener(handleChange);
     return () => mediaQuery.removeListener(handleChange);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const handleScroll = () => {
+      setHasScrolled(window.scrollY > 48);
+    };
+
+    handleScroll();
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const showFloatingTopbar = !isCompactViewport && hasScrolled;
 
   return (
     <div
@@ -71,6 +88,15 @@ export const Layout = ({ children }: LayoutProps) => {
             isDesktopSidebarHidden={isDesktopSidebarHidden}
             onToggleDesktopSidebar={() => setIsDesktopSidebarHidden((value) => !value)}
           />
+          {showFloatingTopbar && (
+            <Topbar
+              variant="floating"
+              searchInputId="global-search-floating"
+              onMenuToggle={() => setIsMobileSidebarOpen(true)}
+              isDesktopSidebarHidden={isDesktopSidebarHidden}
+              onToggleDesktopSidebar={() => setIsDesktopSidebarHidden((value) => !value)}
+            />
+          )}
           <MobileQuickNav />
           <main className="flex-1 px-4 pb-12 pt-4 sm:px-5 md:px-6 lg:px-6 lg:pb-12 lg:pt-8">
             {children}

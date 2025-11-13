@@ -1,0 +1,172 @@
+/* Styles optimisés pour le tableau des clients */
+.data-table__outer {
+  border: 1px solid rgba(var(--border-rgb) / 0.55);
+  border-radius: 1.1rem;
+  background: var(--surface);
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.data-table__surface {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: auto;
+}
+
+/* Optimisation des colonnes pour un meilleur espacement */
+.data-table th,
+.data-table td {
+  box-sizing: border-box;
+}
+
+/* Colonne de sélection */
+.data-table th:first-child,
+.data-table td:first-child {
+  width: 50px;
+  min-width: 50px;
+  max-width: 50px;
+  text-align: center;
+}
+
+/* Organisation */
+.data-table th:nth-child(2),
+.data-table td:nth-child(2) {
+  width: 22%;
+  min-width: 200px;
+}
+
+/* Coordonnées */
+.data-table th:nth-child(3),
+.data-table td:nth-child(3) {
+  width: 18%;
+  min-width: 180px;
+}
+
+/* Contacts */
+.data-table th:nth-child(4),
+.data-table td:nth-child(4) {
+  width: 15%;
+  min-width: 150px;
+}
+
+/* Dernière prestation */
+.data-table th:nth-child(5),
+.data-table td:nth-child(5) {
+  width: 13%;
+  min-width: 130px;
+}
+
+/* CA */
+.data-table th:nth-child(6),
+.data-table td:nth-child(6) {
+  width: 12%;
+  min-width: 120px;
+}
+
+/* Actions */
+.data-table th:last-child,
+.data-table td:last-child {
+  width: 20%;
+  min-width: 180px;
+  text-align: right;
+}
+
+/* Styles pour les lignes sélectionnées */
+.data-table tbody tr {
+  position: relative;
+}
+
+.data-table__row--selected {
+  background: rgba(var(--accent-rgb) / 0.08) !important;
+}
+
+.data-table tbody tr.data-table__row--selected::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--accent);
+  border-radius: 0 2px 2px 0;
+}
+
+.data-table__row--active {
+  background: rgba(var(--accent-rgb) / 0.12) !important;
+  box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb) / 0.3);
+}
+
+/* En-têtes de colonnes avec tri */
+.data-table th {
+  position: relative;
+  cursor: default;
+}
+
+.data-table__header--sortable {
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.2s ease, background-color 0.2s ease;
+}
+
+.data-table__header--sortable:hover {
+  color: var(--accent);
+  background: rgba(var(--accent-rgb) / 0.03);
+}
+
+.data-table__header-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.data-table__sort-indicator {
+  display: inline-block;
+  font-size: 0.55rem;
+  opacity: 0.4;
+  transition: opacity 0.2s ease, color 0.2s ease;
+}
+
+.data-table__header--sorted .data-table__sort-indicator {
+  opacity: 1;
+  color: var(--accent);
+}
+
+/* Responsive */
+@media (max-width: 1500px) {
+  .data-table th:nth-child(2),
+  .data-table td:nth-child(2) {
+    width: 20%;
+    min-width: 180px;
+  }
+
+  .data-table th:nth-child(3),
+  .data-table td:nth-child(3) {
+    width: 18%;
+    min-width: 160px;
+  }
+}
+
+@media (max-width: 1280px) {
+  .data-table th,
+  .data-table td {
+    padding: 0.7rem 0.85rem;
+    font-size: 0.75rem;
+  }
+
+  .data-table th:first-child,
+  .data-table td:first-child {
+    padding: 0.7rem 0.5rem;
+  }
+}
+
+
+
+
+

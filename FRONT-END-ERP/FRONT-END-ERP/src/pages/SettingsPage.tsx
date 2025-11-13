@@ -1,37 +1,33 @@
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import clsx from 'clsx';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import { X, Search, Filter, Building2, CheckCircle2, Circle } from 'lucide-react';
 
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { RowActionButton } from '../components/RowActionButton';
-import SignatureEditor from '../components/settings/SignatureEditor';
 import {
   AuthUser,
   Company,
-  EmailSignature,
-  EmailSignatureScope,
   Service,
   ServiceOption,
   ServiceCategory,
-  SidebarTitlePreference,
   UserProfile,
   useAppData,
 } from '../store/useAppData';
 import { IconDuplicate, IconEdit, IconPlus, IconTrash } from '../components/icons';
 import { BRAND_BASELINE, BRAND_FULL_TITLE, BRAND_NAME } from '../lib/branding';
 import { formatCurrency } from '../lib/format';
-import { APP_PAGE_OPTIONS, PERMISSION_OPTIONS } from '../lib/rbac';
+import { APP_PAGE_OPTIONS, PERMISSION_OPTIONS, type AppPageKey } from '../lib/rbac';
 
 const sections = [
   { id: 'profile', label: 'Profil utilisateur' },
   { id: 'companies', label: 'Entreprises' },
-  { id: 'signatures', label: 'Signatures e-mail' },
   { id: 'catalog', label: 'Services & Produits' },
   { id: 'users', label: 'Utilisateurs' },
-  { id: 'sidebarTitle', label: 'Titre Sidebar' },
 ] as const;
 
 type SectionId = (typeof sections)[number]['id'];
@@ -74,27 +70,13 @@ type CompanyFormState = {
   planningUser: string | null; // 'clement', 'adrien', ou null pour tous
 };
 
-type SignatureFormState = {
-  id: string | null;
-  scope: EmailSignatureScope;
-  companyId: string | null;
-  userId: string | null;
-  label: string;
-  html: string;
-  isDefault: boolean;
-};
-
-type SidebarTitleFormState = {
-  text: string;
-  hidden: boolean;
-};
 
 type UserFormState = {
   username: string;
   password: string;
   role: 'superAdmin' | 'admin' | 'manager' | 'agent' | 'lecture';
-  pages: ('dashboard' | 'clients' | 'leads' | 'service' | 'achats' | 'documents' | 'planning' | 'stats' | 'parametres' | 'parametres.utilisateurs' | '*')[];
-  permissions: ('service.create' | 'service.edit' | 'service.duplicate' | 'service.invoice' | 'service.print' | 'service.email' | 'service.archive' | 'lead.edit' | 'lead.contact' | 'lead.convert' | 'lead.delete' | 'client.edit' | 'client.contact.add' | 'client.invoice' | 'client.quote' | 'client.email' | 'client.archive' | 'documents.view' | 'documents.edit' | 'documents.send' | 'settings.profile' | 'settings.companies' | 'settings.signatures' | 'settings.catalog' | 'settings.users' | 'settings.sidebar' | '*')[];
+  pages: (AppPageKey | '*')[];
+  permissions: ('service.create' | 'service.edit' | 'service.duplicate' | 'service.invoice' | 'service.print' | 'service.email' | 'service.archive' | 'lead.edit' | 'lead.contact' | 'lead.convert' | 'lead.delete' | 'client.edit' | 'client.contact.add' | 'client.invoice' | 'client.quote' | 'client.email' | 'client.archive' | 'documents.view' | 'documents.edit' | 'documents.send' | 'settings.profile' | 'settings.companies' | 'settings.catalog' | 'settings.users' | '*')[];
   active: boolean;
   resetPassword: string;
 };
@@ -118,14 +100,6 @@ type CatalogItemFormState = {
   active: boolean;
 };
 
-const SIGNATURE_VARIABLES = [
-  { token: '{nom}', label: 'Nom complet' },
-  { token: '{fonction}', label: 'Fonction' },
-  { token: '{téléphone}', label: 'Téléphone' },
-  { token: '{email}', label: 'E-mail' },
-  { token: '{entreprise}', label: 'Entreprise' },
-  { token: '{site}', label: 'Site web' },
-];
 
 const CATALOG_CATEGORIES: { value: ServiceCategory; label: string }[] = [
   { value: 'Voiture', label: 'Voiture' },
@@ -142,16 +116,6 @@ const textareaClass =
   'min-h-[120px] rounded-soft border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm placeholder:text-slate-400 focus:border-primary/60 focus:outline-none focus:ring-2 focus:ring-primary/30';
 const detailFormGridClass = 'grid gap-4 sm:grid-cols-2';
 
-const formatSignatureDate = (iso: string | undefined) => {
-  if (!iso) {
-    return '—';
-  }
-  try {
-    return format(new Date(iso), "dd MMM yyyy à HH'h'mm", { locale: fr });
-  } catch (error) {
-    return '—';
-  }
-};
 
 const buildProfileForm = (profile: UserProfile | null): ProfileFormState => ({
   firstName: profile?.firstName ?? '',
@@ -189,25 +153,6 @@ const buildCompanyForm = (company: Company | null): CompanyFormState => ({
   planningUser: company?.planningUser ?? null,
 });
 
-const buildSignatureForm = (
-  signature: EmailSignature | null,
-  scope: EmailSignatureScope,
-  companyId: string | null,
-  userId: string | null
-): SignatureFormState => ({
-  id: signature?.id ?? null,
-  scope: signature?.scope ?? scope,
-  companyId: signature?.companyId ?? companyId,
-  userId: signature?.userId ?? userId,
-  label: signature?.label ?? '',
-  html: signature?.html ?? '',
-  isDefault: signature?.isDefault ?? false,
-});
-
-const buildSidebarTitleForm = (preference: SidebarTitlePreference | null): SidebarTitleFormState => ({
-  text: preference?.text ?? '',
-  hidden: preference?.hidden ?? false,
-});
 
 const buildCatalogServiceForm = (service: Service | null): CatalogServiceFormState => ({
   id: service?.id ?? null,
@@ -242,21 +187,17 @@ const getInitials = (firstName: string, lastName: string) => {
 type DetailState =
   | { section: 'profile'; mode: 'edit' }
   | { section: 'companies'; mode: 'create' | 'edit'; companyId: string | null }
-  | { section: 'signatures'; mode: 'create' | 'edit'; signatureId: string | null }
   | { section: 'catalog'; mode: 'create-service' }
   | { section: 'catalog'; mode: 'edit-service'; serviceId: string }
   | { section: 'catalog'; mode: 'create-item'; serviceId: string }
   | { section: 'catalog'; mode: 'edit-item'; serviceId: string; itemId: string }
-  | { section: 'users'; mode: 'create' | 'edit' | 'password-reset'; userId?: string }
-  | { section: 'sidebarTitle'; mode: 'edit' };
+  | { section: 'users'; mode: 'create' | 'edit' | 'password-reset'; userId?: string };
 
 const detailAnchors: Record<DetailState['section'], string> = {
   profile: 'profil',
   companies: 'entreprise',
-  signatures: 'signature',
   catalog: 'catalogue',
   users: 'utilisateurs',
-  sidebarTitle: 'sidebar-title',
 };
 
 const SettingsPage = () => {
@@ -283,14 +224,6 @@ const SettingsPage = () => {
     setVatEnabled,
     vatRate,
     setVatRate,
-    emailSignatures,
-    createEmailSignature,
-    updateEmailSignatureRecord,
-    removeEmailSignature,
-    setDefaultEmailSignature,
-    sidebarTitlePreference,
-    setSidebarTitlePreference,
-    resetSidebarTitlePreference,
     // Fonctions de gestion des utilisateurs
     createUserAccount,
     updateUserAccount,
@@ -313,14 +246,10 @@ const SettingsPage = () => {
         return currentUser.permissions.includes('*') || currentUser.permissions.includes('settings.profile');
       case 'companies':
         return currentUser.permissions.includes('*') || currentUser.permissions.includes('settings.companies');
-      case 'signatures':
-        return currentUser.permissions.includes('*') || currentUser.permissions.includes('settings.signatures');
       case 'catalog':
         return currentUser.permissions.includes('*') || currentUser.permissions.includes('settings.catalog');
       case 'users':
         return currentUser.permissions.includes('*') || currentUser.permissions.includes('settings.users');
-      case 'sidebarTitle':
-        return currentUser.permissions.includes('*') || currentUser.permissions.includes('settings.sidebar');
       default:
         return false;
     }
@@ -331,33 +260,35 @@ const SettingsPage = () => {
   // Filtrer les sections selon les permissions de l'utilisateur
   const availableSections = sections.filter(section => hasSettingsPermission(section.id));
   
-  const initialTab = (searchParams.get('tab') as SectionId) ?? 'profile';
-  const [activeSection, setActiveSection] = useState<SectionId>(
-    availableSections.some((section) => section.id === initialTab) ? initialTab : availableSections[0]?.id || 'profile'
-  );
+  const tabParam = searchParams.get('tab');
+  const fallbackSection: SectionId = availableSections[0]?.id ?? 'profile';
+  const requestedSection = sections.find((section) => section.id === tabParam)?.id ?? null;
+  const activeSection: SectionId = requestedSection ?? fallbackSection;
 
   useEffect(() => {
+    if (tabParam && tabParam === activeSection) {
+      return;
+    }
     setSearchParams((params) => {
       const next = new URLSearchParams(params);
       next.set('tab', activeSection);
       return next;
     });
-  }, [activeSection, setSearchParams]);
+  }, [tabParam, activeSection, setSearchParams]);
 
   const brandBaseline = BRAND_BASELINE.trim();
   const showBrandBaseline = brandBaseline.length > 0;
 
   const profileSectionRef = useRef<HTMLDivElement | null>(null);
   const companiesSectionRef = useRef<HTMLDivElement | null>(null);
-  const signaturesSectionRef = useRef<HTMLDivElement | null>(null);
   const catalogSectionRef = useRef<HTMLDivElement | null>(null);
   const usersSectionRef = useRef<HTMLDivElement | null>(null);
-  const sidebarTitleSectionRef = useRef<HTMLDivElement | null>(null);
   const detailContainerRef = useRef<HTMLDivElement | null>(null);
   const detailHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const hasAppliedHashRef = useRef(false);
 
   const [detailState, setDetailState] = useState<DetailState | null>(null);
+  const [showProfileModal, setShowProfileModal] = useState(false);
   const [profileForm, setProfileForm] = useState<ProfileFormState>(() => buildProfileForm(userProfile));
   const avatarFileInputRef = useRef<HTMLInputElement | null>(null);
   const [companyForm, setCompanyForm] = useState<CompanyFormState>(() =>
@@ -365,13 +296,6 @@ const SettingsPage = () => {
   );
   const companyLogoFileInputRef = useRef<HTMLInputElement | null>(null);
   const companyInvoiceLogoFileInputRef = useRef<HTMLInputElement | null>(null);
-  const [editingSignature, setEditingSignature] = useState<EmailSignature | null>(null);
-  const [signatureForm, setSignatureForm] = useState<SignatureFormState>(() =>
-    buildSignatureForm(null, 'company', activeCompanyId ?? companies[0]?.id ?? null, currentUserId)
-  );
-  const [sidebarTitleForm, setSidebarTitleForm] = useState<SidebarTitleFormState>(() =>
-    buildSidebarTitleForm(sidebarTitlePreference)
-  );
   const [catalogServiceForm, setCatalogServiceForm] = useState<CatalogServiceFormState>(() =>
     buildCatalogServiceForm(null)
   );
@@ -387,6 +311,16 @@ const SettingsPage = () => {
     key: 'name' | 'category' | 'active' | 'count';
     direction: 'asc' | 'desc';
   }>({ key: 'name', direction: 'asc' });
+  
+  // États pour la recherche et filtres des entreprises
+  const [companySearchQuery, setCompanySearchQuery] = useState('');
+  const [companyFilterActive, setCompanyFilterActive] = useState<'all' | 'active' | 'inactive'>('all');
+  const [companyFilterVat, setCompanyFilterVat] = useState<'all' | 'enabled' | 'disabled'>('all');
+  const [companyFilterPlanning, setCompanyFilterPlanning] = useState<'all' | 'clement' | 'adrien' | 'tous'>('all');
+  
+  // États pour le modal d'édition d'entreprise
+  const [showCompanyModal, setShowCompanyModal] = useState(false);
+  const [editingCompanyId, setEditingCompanyId] = useState<string | null>(null);
   
   // États pour la gestion des utilisateurs
   const [userForm, setUserForm] = useState<UserFormState>(() => ({
@@ -432,12 +366,6 @@ const SettingsPage = () => {
     }
   }, [detailState]);
 
-  useEffect(() => {
-    if (detailState?.section !== 'sidebarTitle') {
-      setSidebarTitleForm(buildSidebarTitleForm(sidebarTitlePreference));
-    }
-  }, [detailState, sidebarTitlePreference]);
-
   const selectedCatalogService = useMemo(() => {
     if (!services.length) {
       return null;
@@ -480,6 +408,38 @@ const SettingsPage = () => {
     () => companies.some((company) => company.vatEnabled),
     [companies]
   );
+
+  // Filtrage et recherche des entreprises
+  const filteredCompanies = useMemo(() => {
+    const normalizedQuery = companySearchQuery.trim().toLowerCase();
+    
+    return companies.filter((company) => {
+      // Recherche par nom, SIRET, email, ville
+      if (normalizedQuery) {
+        const matchesSearch =
+          company.name.toLowerCase().includes(normalizedQuery) ||
+          company.siret.toLowerCase().includes(normalizedQuery) ||
+          company.email.toLowerCase().includes(normalizedQuery) ||
+          company.city.toLowerCase().includes(normalizedQuery);
+        if (!matchesSearch) return false;
+      }
+
+      // Filtre par statut actif
+      if (companyFilterActive === 'active' && activeCompanyId !== company.id) return false;
+      if (companyFilterActive === 'inactive' && activeCompanyId === company.id) return false;
+
+      // Filtre par TVA
+      if (companyFilterVat === 'enabled' && !company.vatEnabled) return false;
+      if (companyFilterVat === 'disabled' && company.vatEnabled) return false;
+
+      // Filtre par planning
+      if (companyFilterPlanning === 'clement' && company.planningUser !== 'clement') return false;
+      if (companyFilterPlanning === 'adrien' && company.planningUser !== 'adrien') return false;
+      if (companyFilterPlanning === 'tous' && company.planningUser !== null) return false;
+
+      return true;
+    });
+  }, [companies, companySearchQuery, companyFilterActive, companyFilterVat, companyFilterPlanning, activeCompanyId]);
 
   const normalizedServiceQuery = catalogServiceQuery.trim().toLowerCase();
   const normalizedItemQuery = catalogItemQuery.trim().toLowerCase();
@@ -573,12 +533,8 @@ const SettingsPage = () => {
         return profileSectionRef;
       case 'companies':
         return companiesSectionRef;
-      case 'signatures':
-        return signaturesSectionRef;
       case 'catalog':
         return catalogSectionRef;
-      case 'sidebarTitle':
-        return sidebarTitleSectionRef;
       default:
         return profileSectionRef;
     }
@@ -654,7 +610,7 @@ const SettingsPage = () => {
 
     if (currentHash === detailAnchors.profile) {
       setProfileForm(buildProfileForm(userProfile));
-      setDetailState({ section: 'profile', mode: 'edit' });
+      setShowProfileModal(true);
     } else if (currentHash === detailAnchors.companies) {
       const targetCompany = companies.find((company) => company.id === activeCompanyId) ?? companies[0] ?? null;
       setCompanyForm(buildCompanyForm(targetCompany));
@@ -663,41 +619,14 @@ const SettingsPage = () => {
         mode: targetCompany ? 'edit' : 'create',
         companyId: targetCompany?.id ?? null,
       });
-    } else if (currentHash === detailAnchors.signatures) {
-      const targetSignature = emailSignatures[0] ?? null;
-      const scope = targetSignature?.scope ?? 'company';
-      const defaultCompanyId =
-        scope === 'company'
-          ? targetSignature?.companyId ?? activeCompanyId ?? companies[0]?.id ?? null
-          : targetSignature?.companyId ?? activeCompanyId ?? companies[0]?.id ?? null;
-      const defaultUserId =
-        scope === 'user'
-          ? targetSignature?.userId ?? currentUserId ?? authUsers[0]?.id ?? null
-          : currentUserId ?? authUsers[0]?.id ?? null;
-      setEditingSignature(targetSignature);
-      setSignatureForm(buildSignatureForm(targetSignature, scope, defaultCompanyId, defaultUserId));
-      setDetailState({
-        section: 'signatures',
-        mode: targetSignature ? 'edit' : 'create',
-        signatureId: targetSignature?.id ?? null,
-      });
-    } else if (currentHash === detailAnchors.sidebarTitle) {
-      setSidebarTitleForm(buildSidebarTitleForm(sidebarTitlePreference));
-      setDetailState({ section: 'sidebarTitle', mode: 'edit' });
     }
 
     hasAppliedHashRef.current = true;
   }, [
     activeCompanyId,
-    authUsers,
     companies,
-    currentUserId,
-    emailSignatures,
     setCompanyForm,
     setProfileForm,
-    setSignatureForm,
-    setSidebarTitleForm,
-    sidebarTitlePreference,
     userProfile,
   ]);
 
@@ -733,8 +662,13 @@ const SettingsPage = () => {
 
   const openProfileDetail = () => {
     setProfileForm(buildProfileForm(userProfile));
-    setDetailState({ section: 'profile', mode: 'edit' });
+    setShowProfileModal(true);
   };
+
+  const closeProfileModal = useCallback(() => {
+    setShowProfileModal(false);
+    setProfileForm(buildProfileForm(userProfile));
+  }, [userProfile]);
 
   const handleProfileCancel = () => {
     setProfileForm(buildProfileForm(userProfile));
@@ -750,7 +684,7 @@ const SettingsPage = () => {
       role: profileForm.role.trim(),
     });
     updateUserAvatar(profileForm.avatarUrl.trim());
-    closeDetail('profile');
+    closeProfileModal();
   };
 
   useEffect(() => {
@@ -928,38 +862,6 @@ const SettingsPage = () => {
     closeDetail('companies');
   };
 
-  const openSidebarTitleDetail = () => {
-    setSidebarTitleForm(buildSidebarTitleForm(sidebarTitlePreference));
-    setDetailState({ section: 'sidebarTitle', mode: 'edit' });
-  };
-
-  const handleSidebarTitleTextChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const { value } = event.target;
-    setSidebarTitleForm((prev) => ({ ...prev, text: value }));
-  };
-
-  const handleSidebarTitleVisibilityChange = (event: ChangeEvent<HTMLInputElement>) => {
-    setSidebarTitleForm((prev) => ({ ...prev, hidden: event.target.checked }));
-  };
-
-  const handleSidebarTitleCancel = () => {
-    setSidebarTitleForm(buildSidebarTitleForm(sidebarTitlePreference));
-  };
-
-  const handleSidebarTitleReset = () => {
-    resetSidebarTitlePreference();
-    setSidebarTitleForm(buildSidebarTitleForm({ text: BRAND_FULL_TITLE, hidden: false }));
-  };
-
-  const handleSidebarTitleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setSidebarTitlePreference({
-      text: sidebarTitleForm.text.trim(),
-      hidden: sidebarTitleForm.hidden,
-    });
-    closeDetail('sidebarTitle');
-  };
-
   // Gestionnaires pour les utilisateurs
   const handleUserFormChange = (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value, type, checked } = event.target as HTMLInputElement;
@@ -978,21 +880,51 @@ const SettingsPage = () => {
             newForm.permissions = ['*'];
             break;
           case 'admin':
-            newForm.pages = ['dashboard', 'clients', 'leads', 'service', 'achats', 'documents', 'planning', 'stats', 'parametres'];
+            newForm.pages = [
+              'dashboard',
+              'clients',
+              'leads',
+              'service',
+              'comptabilite.achats',
+              'planning',
+              'stats',
+              'parametres',
+              'administratif',
+              'administratif.overview',
+              'comptabilite.documents',
+            ];
             newForm.permissions = ['*'];
             break;
           case 'manager':
-            newForm.pages = ['dashboard', 'clients', 'leads', 'service', 'planning', 'stats'];
+            newForm.pages = [
+              'dashboard',
+              'clients',
+              'leads',
+              'service',
+              'planning',
+              'stats',
+              'administratif',
+              'administratif.overview',
+              'comptabilite.documents',
+            ];
             newForm.permissions = [
               'service.create', 'service.edit', 'service.duplicate', 'service.invoice', 'service.print', 'service.email',
               'lead.edit', 'lead.contact', 'lead.convert',
               'client.edit', 'client.contact.add', 'client.invoice', 'client.quote', 'client.email',
               'documents.view', 'documents.edit', 'documents.send',
-              'settings.profile', 'settings.companies', 'settings.signatures', 'settings.catalog'
+              'settings.profile', 'settings.companies', 'settings.catalog'
             ];
             break;
           case 'agent':
-            newForm.pages = ['dashboard', 'clients', 'service', 'planning'];
+            newForm.pages = [
+              'dashboard',
+              'clients',
+              'service',
+              'planning',
+              'administratif',
+              'administratif.overview',
+              'comptabilite.documents',
+            ];
             newForm.permissions = [
               'service.create', 'service.edit', 'service.invoice', 'service.print', 'service.email',
               'client.edit', 'client.contact.add',
@@ -1001,7 +933,15 @@ const SettingsPage = () => {
             ];
             break;
           case 'lecture':
-            newForm.pages = ['dashboard', 'clients', 'service', 'stats'];
+            newForm.pages = [
+              'dashboard',
+              'clients',
+              'service',
+              'stats',
+              'administratif',
+              'administratif.overview',
+              'comptabilite.documents',
+            ];
             newForm.permissions = ['documents.view'];
             break;
         }
@@ -1244,147 +1184,6 @@ const SettingsPage = () => {
     }
   };
 
-  useEffect(() => {
-    if (detailState?.section !== 'signatures') {
-      setEditingSignature(null);
-      setSignatureForm(buildSignatureForm(null, 'company', activeCompanyId ?? companies[0]?.id ?? null, currentUserId));
-    }
-  }, [detailState, activeCompanyId, companies, currentUserId]);
-
-  const openSignatureDetail = (
-    signature: EmailSignature | null,
-    scope: EmailSignatureScope,
-    companyId: string | null,
-    userId: string | null
-  ) => {
-    setEditingSignature(signature);
-    setSignatureForm(buildSignatureForm(signature, scope, companyId, userId));
-    setDetailState({ section: 'signatures', mode: signature ? 'edit' : 'create', signatureId: signature?.id ?? null });
-  };
-
-  const handleSignatureCancel = () => {
-    if (detailState?.section === 'signatures' && detailState.signatureId) {
-      const original = emailSignatures.find((item) => item.id === detailState.signatureId) ?? null;
-      const originalScope = original?.scope ?? signatureForm.scope;
-      const companyId =
-        originalScope === 'company'
-          ? original?.companyId ?? signatureForm.companyId ?? activeCompanyId ?? companies[0]?.id ?? null
-          : original?.companyId ?? signatureForm.companyId ?? activeCompanyId ?? companies[0]?.id ?? null;
-      const userId =
-        originalScope === 'user'
-          ? original?.userId ?? signatureForm.userId ?? currentUserId ?? authUsers[0]?.id ?? null
-          : null;
-      setEditingSignature(original);
-      setSignatureForm(buildSignatureForm(original, originalScope, companyId, userId));
-    } else {
-      setEditingSignature(null);
-      setSignatureForm(buildSignatureForm(null, 'company', activeCompanyId ?? companies[0]?.id ?? null, currentUserId));
-    }
-  };
-
-  const closeSignatureDetail = () => {
-    setEditingSignature(null);
-    closeDetail('signatures');
-  };
-
-  const handleSignatureScopeChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    const scope = event.target.value as EmailSignatureScope;
-    setSignatureForm((prev) => ({
-      ...prev,
-      scope,
-      companyId:
-        scope === 'company'
-          ? prev.companyId ?? activeCompanyId ?? companies[0]?.id ?? null
-          : prev.companyId,
-      userId: scope === 'user' ? prev.userId ?? currentUserId ?? authUsers[0]?.id ?? null : null,
-    }));
-  };
-
-  const handleSignatureInputChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = event.target;
-    setSignatureForm((prev) => ({ ...prev, [name]: value }));
-  };
-
-  const handleSignatureCompanyChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    const { value } = event.target;
-    setSignatureForm((prev) => ({ ...prev, companyId: value || null }));
-  };
-
-  const handleSignatureUserChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    const { value } = event.target;
-    setSignatureForm((prev) => ({ ...prev, userId: value || null }));
-  };
-
-  const handleSignatureHtmlChange = (html: string) => {
-    setSignatureForm((prev) => ({ ...prev, html }));
-  };
-
-  const signaturePreviewHtml =
-    signatureForm.html ||
-    `<p>${userProfile.firstName} ${userProfile.lastName}<br/>${userProfile.role}<br/>${userProfile.email}</p>`;
-
-  const handleSignatureSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!signatureForm.label.trim()) {
-      return;
-    }
-    if (signatureForm.scope === 'company' && !signatureForm.companyId) {
-      return;
-    }
-    if (signatureForm.scope === 'user' && !signatureForm.userId) {
-      return;
-    }
-
-    const targetCompanyId = signatureForm.scope === 'company' ? signatureForm.companyId : signatureForm.companyId ?? null;
-    const targetUserId = signatureForm.scope === 'user' ? signatureForm.userId : signatureForm.userId ?? null;
-
-    if (editingSignature) {
-      const scopeChanged =
-        signatureForm.scope !== editingSignature.scope ||
-        (signatureForm.scope === 'company' && editingSignature.companyId !== targetCompanyId) ||
-        (signatureForm.scope === 'user' && editingSignature.userId !== targetUserId);
-
-      if (scopeChanged) {
-        removeEmailSignature(editingSignature.id);
-        const created = createEmailSignature({
-          scope: signatureForm.scope,
-          companyId: targetCompanyId,
-          userId: targetUserId,
-          label: signatureForm.label.trim(),
-          html: signatureForm.html,
-          isDefault: signatureForm.isDefault,
-        });
-        if (created.isDefault) {
-          setDefaultEmailSignature(created.id);
-        }
-      } else {
-        updateEmailSignatureRecord(editingSignature.id, {
-          label: signatureForm.label.trim(),
-          html: signatureForm.html,
-          companyId: targetCompanyId,
-          userId: targetUserId,
-          isDefault: signatureForm.isDefault,
-        });
-        if (signatureForm.isDefault) {
-          setDefaultEmailSignature(editingSignature.id);
-        }
-      }
-    } else {
-      const created = createEmailSignature({
-        scope: signatureForm.scope,
-        companyId: targetCompanyId,
-        userId: targetUserId,
-        label: signatureForm.label.trim(),
-        html: signatureForm.html,
-        isDefault: signatureForm.isDefault,
-      });
-      if (created.isDefault) {
-        setDefaultEmailSignature(created.id);
-      }
-    }
-
-    closeSignatureDetail();
-  };
 
   const detailTitle = (() => {
     if (!detailState) {
@@ -1395,8 +1194,6 @@ const SettingsPage = () => {
         return 'Modifier mon profil';
       case 'companies':
         return detailState.mode === 'edit' ? "Modifier l’entreprise" : 'Ajouter une entreprise';
-      case 'signatures':
-        return detailState.mode === 'edit' ? 'Modifier la signature' : 'Créer une signature';
       case 'catalog':
         switch (detailState.mode) {
           case 'create-service':
@@ -1410,8 +1207,6 @@ const SettingsPage = () => {
           default:
             return '';
         }
-      case 'sidebarTitle':
-        return 'Personnaliser le titre de la sidebar';
       default:
         return '';
     }
@@ -1426,8 +1221,6 @@ const SettingsPage = () => {
         return 'Actualisez vos informations personnelles et votre photo de profil.';
       case 'companies':
         return 'Complétez les informations légales, TVA et visuels utilisés pour vos documents.';
-      case 'signatures':
-        return 'Définissez le contenu HTML et la portée de la signature jointe à vos e-mails.';
       case 'catalog':
         switch (detailState.mode) {
           case 'create-service':
@@ -1441,8 +1234,6 @@ const SettingsPage = () => {
           default:
             return '';
         }
-      case 'sidebarTitle':
-        return 'Adaptez le titre affiché dans la navigation latérale pour refléter votre identité.';
       default:
         return '';
     }
@@ -1456,9 +1247,6 @@ const SettingsPage = () => {
       case 'profile':
         return 'Profil';
       case 'companies':
-      case 'signatures':
-      case 'sidebarTitle':
-        return detailState.mode === 'edit' ? 'Modification' : 'Création';
       case 'catalog':
         return detailState.mode === 'create-service' || detailState.mode === 'create-item'
           ? 'Création'
@@ -1475,39 +1263,12 @@ const SettingsPage = () => {
           <h1 className="mt-2 text-3xl font-semibold text-slate-900">Paramètres</h1>
         </div>
         <p className="max-w-2xl text-sm leading-6 text-slate-500">
-          Configurez votre profil, vos entreprises, vos signatures e-mail et personnalisez le titre de la navigation pour offrir
+          Configurez votre profil, vos entreprises et personnalisez le titre de la navigation pour offrir
           une expérience cohérente. Les factures reprennent automatiquement les informations de l’entreprise active.
         </p>
       </header>
 
-      <div className="flex flex-col gap-8 lg:flex-row">
-        <nav className="lg:w-64">
-          <div className="rounded-soft border border-slate-200/70 bg-white p-3 shadow-sm">
-            <ul className="space-y-1 text-sm">
-              {availableSections.map((section) => (
-                <li key={section.id}>
-                  <button
-                    type="button"
-                    onClick={() => setActiveSection(section.id)}
-                    className={clsx(
-                      'flex w-full items-center justify-between rounded-soft px-3 py-2 text-left font-medium transition',
-                      activeSection === section.id
-                        ? 'bg-primary/10 text-primary shadow-sm'
-                        : 'text-slate-500 hover:bg-slate-100/80 hover:text-slate-700'
-                    )}
-                  >
-                    <span>{section.label}</span>
-                    {activeSection === section.id && (
-                      <span className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Actif</span>
-                    )}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </nav>
-
-        <div className="flex-1 space-y-12">
+      <div className="space-y-12">
           {/* Message si aucun accès aux paramètres */}
           {availableSections.length === 0 && (
             <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -1522,6 +1283,17 @@ const SettingsPage = () => {
                   Contactez votre administrateur pour obtenir les permissions appropriées.
                 </p>
               </div>
+            </div>
+          )}
+          {availableSections.length > 0 && !hasSettingsPermission(activeSection) && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-6 text-amber-700 shadow-sm dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+              <h3 className="text-lg font-semibold text-amber-800 dark:text-amber-100">Accès restreint</h3>
+              <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">
+                Vous n&apos;avez pas les permissions nécessaires pour consulter cette section.
+              </p>
+              <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                Contactez votre administrateur pour obtenir les accès appropriés.
+              </p>
             </div>
           )}
           {activeSection === 'profile' && hasSettingsPermission('profile') && (
@@ -1580,16 +1352,17 @@ const SettingsPage = () => {
               tabIndex={-1}
               className="space-y-6 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
             >
+              {/* Header */}
               <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <h2 className="text-base font-semibold text-slate-900">Entreprises</h2>
-                  <p className="mt-1 text-sm text-slate-500 dark:text-slate-300">
+                  <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Entreprises</h2>
+                  <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                     Centralisez vos entités légales, ajustez vos préférences TVA et laissez {BRAND_NAME} générer automatiquement
-                    les factures selon l’entreprise active.
+                    les factures selon l'entreprise active.
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
-                  <label className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                  <label className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
                     TVA (%)
                     <input
                       type="number"
@@ -1607,301 +1380,523 @@ const SettingsPage = () => {
                 </div>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                {companies.map((company) => {
-                  const contactSummary = [company.email, company.phone, company.website].filter(Boolean).join(' · ');
-                  const addressSummaryLines = [
-                    company.address,
-                    [company.postalCode, company.city].filter(Boolean).join(' ').trim(),
-                    company.country,
-                  ].filter((value) => value && value.length > 0);
+              {/* Barre de recherche et filtres */}
+              <Card padding="md" className="space-y-4">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+                  {/* Recherche */}
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="search"
+                      value={companySearchQuery}
+                      onChange={(e) => setCompanySearchQuery(e.target.value)}
+                      placeholder="Rechercher par nom, SIRET, email, ville..."
+                      className="w-full rounded-soft border border-slate-300 bg-white pl-10 pr-4 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:border-primary/60 focus:outline-none focus:ring-2 focus:ring-primary/30 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:placeholder:text-slate-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Filtres */}
+                <div className="flex flex-wrap items-center gap-3 border-t border-slate-200 pt-4 dark:border-slate-700">
+                  <div className="flex items-center gap-2">
+                    <Filter className="h-4 w-4 text-slate-400" />
+                    <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+                      Filtres
+                    </span>
+                  </div>
                   
-                  // Déterminer le planning associé
-                  const planningLabel = company.planningUser === 'clement' ? 'Clément' : 
-                                      company.planningUser === 'adrien' ? 'Adrien' : 'Tous';
-                  
-                  return (
-                    <Card
-                      key={company.id}
-                      padding="lg"
-                      className={clsx(
-                        'group relative border transition-all duration-200',
-                        activeCompanyId === company.id 
-                          ? 'border-primary/30 bg-primary/5 shadow-md' 
-                          : 'border-slate-200 hover:border-slate-300 hover:shadow-sm'
-                      )}
+                  {/* Filtre statut actif */}
+                  <select
+                    value={companyFilterActive}
+                    onChange={(e) => setCompanyFilterActive(e.target.value as 'all' | 'active' | 'inactive')}
+                    className="rounded-soft border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-700 focus:border-primary/60 focus:outline-none focus:ring-2 focus:ring-primary/30 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                  >
+                    <option value="all">Tous les statuts</option>
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
+
+                  {/* Filtre TVA */}
+                  <select
+                    value={companyFilterVat}
+                    onChange={(e) => setCompanyFilterVat(e.target.value as 'all' | 'enabled' | 'disabled')}
+                    className="rounded-soft border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-700 focus:border-primary/60 focus:outline-none focus:ring-2 focus:ring-primary/30 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                  >
+                    <option value="all">TVA : Toutes</option>
+                    <option value="enabled">TVA : Activée</option>
+                    <option value="disabled">TVA : Désactivée</option>
+                  </select>
+
+                  {/* Filtre planning */}
+                  <select
+                    value={companyFilterPlanning}
+                    onChange={(e) => setCompanyFilterPlanning(e.target.value as 'all' | 'clement' | 'adrien' | 'tous')}
+                    className="rounded-soft border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-700 focus:border-primary/60 focus:outline-none focus:ring-2 focus:ring-primary/30 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                  >
+                    <option value="all">Planning : Tous</option>
+                    <option value="clement">Planning : Clément</option>
+                    <option value="adrien">Planning : Adrien</option>
+                    <option value="tous">Planning : Tous</option>
+                  </select>
+
+                  {/* Reset filtres */}
+                  {(companySearchQuery || companyFilterActive !== 'all' || companyFilterVat !== 'all' || companyFilterPlanning !== 'all') && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setCompanySearchQuery('');
+                        setCompanyFilterActive('all');
+                        setCompanyFilterVat('all');
+                        setCompanyFilterPlanning('all');
+                      }}
+                      className="ml-auto text-xs"
                     >
-                      {/* Header avec logo et actions */}
-                      <div className="flex items-start justify-between mb-4">
-                        <div className="flex items-start gap-3">
-                          <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded border border-slate-200 bg-slate-50">
-                            {company.logoUrl ? (
-                              <img 
-                                src={company.logoUrl} 
-                                alt={`Logo ${company.name}`} 
-                                className="h-full w-full object-contain" 
-                              />
+                      Réinitialiser
+                    </Button>
+                  )}
+                </div>
+              </Card>
+
+              {/* Tableau des entreprises */}
+              {filteredCompanies.length > 0 ? (
+                <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900/60">
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/60">
+                        <tr>
+                          <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                            Entreprise
+                          </th>
+                          <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                            Contact
+                          </th>
+                          <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                            Localisation
+                          </th>
+                          <th className="px-6 py-4 text-center text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                            Statut
+                          </th>
+                          <th className="px-6 py-4 text-center text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                            TVA
+                          </th>
+                          <th className="px-6 py-4 text-center text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                            Planning
+                          </th>
+                          <th className="px-6 py-4 text-right text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                            Actions
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {filteredCompanies.map((company) => {
+                          const planningLabel = company.planningUser === 'clement' ? 'Clément' : 
+                                              company.planningUser === 'adrien' ? 'Adrien' : 'Tous';
+                          const isActive = activeCompanyId === company.id;
+                          
+                          return (
+                            <tr
+                              key={company.id}
+                              onClick={() => {
+                                setEditingCompanyId(company.id);
+                                setCompanyForm(buildCompanyForm(company));
+                                setShowCompanyModal(true);
+                              }}
+                              className={clsx(
+                                'group cursor-pointer transition-colors',
+                                isActive 
+                                  ? 'bg-primary/5 hover:bg-primary/10' 
+                                  : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                              )}
+                            >
+                              {/* Entreprise */}
+                              <td className="px-6 py-4">
+                                <div className="flex items-center gap-3">
+                                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800">
+                                    {company.logoUrl ? (
+                                      <img 
+                                        src={company.logoUrl} 
+                                        alt={`Logo ${company.name}`} 
+                                        className="h-full w-full object-contain" 
+                                      />
+                                    ) : (
+                                      <Building2 className="h-5 w-5 text-slate-400" />
+                                    )}
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-2">
+                                      <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                        {company.name}
+                                      </p>
+                                      {company.isDefault && (
+                                        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+                                          Défaut
+                                        </span>
+                                      )}
+                                      {isActive && (
+                                        <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary dark:bg-primary/20">
+                                          Active
+                                        </span>
+                                      )}
+                                    </div>
+                                    <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                                      SIRET {company.siret}
+                                    </p>
+                                    {company.website && (
+                                      <a 
+                                        href={company.website} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer"
+                                        className="mt-1 block text-xs text-primary hover:underline"
+                                        onClick={(e) => e.stopPropagation()}
+                                      >
+                                        {company.website}
+                                      </a>
+                                    )}
+                                  </div>
+                                </div>
+                              </td>
+
+                              {/* Contact */}
+                              <td className="px-6 py-4">
+                                <div className="space-y-1">
+                                  {company.email && (
+                                    <p className="text-xs text-slate-700 dark:text-slate-300">{company.email}</p>
+                                  )}
+                                  {company.phone && (
+                                    <p className="text-xs text-slate-500 dark:text-slate-400">{company.phone}</p>
+                                  )}
+                                </div>
+                              </td>
+
+                              {/* Localisation */}
+                              <td className="px-6 py-4">
+                                <div className="space-y-1">
+                                  {company.address && (
+                                    <p className="text-xs text-slate-700 dark:text-slate-300">{company.address}</p>
+                                  )}
+                                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                                    {[company.postalCode, company.city].filter(Boolean).join(' ')}
+                                    {company.country && `, ${company.country}`}
+                                  </p>
+                                </div>
+                              </td>
+
+                              {/* Statut */}
+                              <td className="px-6 py-4 text-center">
+                                {isActive ? (
+                                  <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary dark:bg-primary/20">
+                                    <CheckCircle2 className="h-3.5 w-3.5" />
+                                    Active
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                                    <Circle className="h-3.5 w-3.5" />
+                                    Inactive
+                                  </span>
+                                )}
+                              </td>
+
+                              {/* TVA */}
+                              <td className="px-6 py-4 text-center">
+                                <label className="flex items-center justify-center gap-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={company.vatEnabled}
+                                    onChange={(event) => {
+                                      event.stopPropagation();
+                                      handleCompanyVatToggle(company, event.target.checked);
+                                    }}
+                                    className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/40"
+                                  />
+                                  <span className={clsx(
+                                    'text-xs',
+                                    company.vatEnabled 
+                                      ? 'font-medium text-slate-700 dark:text-slate-300' 
+                                      : 'text-slate-500 dark:text-slate-400'
+                                  )}>
+                                    {company.vatEnabled ? 'Oui' : 'Non'}
+                                  </span>
+                                </label>
+                              </td>
+
+                              {/* Planning */}
+                              <td className="px-6 py-4 text-center">
+                                <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                                  {planningLabel}
+                                </span>
+                              </td>
+
+                              {/* Actions */}
+                              <td className="px-6 py-4">
+                                <div className="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                                  {!company.isDefault && (
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleCompanySetDefault(company);
+                                      }}
+                                      className="text-xs"
+                                    >
+                                      Défaut
+                                    </Button>
+                                  )}
+                                  {!isActive && (
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setActiveCompany(company.id);
+                                      }}
+                                      className="text-xs"
+                                    >
+                                      Activer
+                                    </Button>
+                                  )}
+                                  <RowActionButton 
+                                    label="Modifier" 
+                                    onClick={() => openCompanyDetail(company)}
+                                  >
+                                    <IconEdit />
+                                  </RowActionButton>
+                                  <RowActionButton 
+                                    label="Supprimer" 
+                                    tone="danger" 
+                                    onClick={() => handleCompanyRemove(company.id)}
+                                  >
+                                    <IconTrash />
+                                  </RowActionButton>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                <Card padding="lg" className="text-center">
+                  {companies.length === 0 ? (
+                    <>
+                      <Building2 className="mx-auto h-12 w-12 text-slate-400" />
+                      <h3 className="mt-4 text-base font-semibold text-slate-900 dark:text-slate-100">
+                        Aucune entreprise
+                      </h3>
+                      <p className="mt-2 text-sm text-slate-600 dark:text-slate-400 max-w-md mx-auto">
+                        Ajoutez votre première entreprise pour commencer à générer des documents officiels.
+                      </p>
+                      <Button onClick={() => openCompanyDetail(null)} className="mt-4">
+                        <IconPlus />
+                        Créer une entreprise
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Search className="mx-auto h-12 w-12 text-slate-400" />
+                      <h3 className="mt-4 text-base font-semibold text-slate-900 dark:text-slate-100">
+                        Aucun résultat
+                      </h3>
+                      <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+                        Aucune entreprise ne correspond à vos critères de recherche.
+                      </p>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setCompanySearchQuery('');
+                          setCompanyFilterActive('all');
+                          setCompanyFilterVat('all');
+                          setCompanyFilterPlanning('all');
+                        }}
+                        className="mt-4"
+                      >
+                        Réinitialiser les filtres
+                      </Button>
+                    </>
+                  )}
+                </Card>
+              )}
+
+              {/* Modal d'édition d'entreprise */}
+              {showCompanyModal &&
+                editingCompanyId &&
+                typeof document !== 'undefined' &&
+                createPortal(
+                  <div
+                    className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/40 backdrop-blur-md px-4 py-4"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="edit-company-title"
+                    onClick={() => {
+                      setShowCompanyModal(false);
+                      setEditingCompanyId(null);
+                    }}
+                  >
+                    <div
+                      className="relative w-full max-w-3xl max-h-[90vh] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl ring-1 ring-slate-900/10 transition dark:border-slate-700 dark:bg-slate-900"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <div className="flex flex-col gap-4 bg-white p-4 md:p-6 text-slate-900 dark:bg-slate-900 dark:text-slate-100 max-h-[90vh] overflow-y-auto">
+                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                          <div className="space-y-1">
+                            <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-blue-500">MODIFIER L'ENTREPRISE</span>
+                            <h2 id="edit-company-title" className="text-xl font-semibold text-slate-900 dark:text-slate-100">
+                              {companies.find((c) => c.id === editingCompanyId)?.name ?? 'Entreprise'}
+                            </h2>
+                            <p className="max-w-lg text-xs text-slate-500 dark:text-slate-400">
+                              Consultez et modifiez les informations de l'entreprise.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowCompanyModal(false);
+                              setEditingCompanyId(null);
+                            }}
+                            className="ml-auto flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                            aria-label="Fermer"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div>
+                            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400">
+                              Nom de l'entreprise
+                            </label>
+                            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                              {companyForm.name || '—'}
+                            </p>
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400">
+                              SIRET
+                            </label>
+                            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                              {companyForm.siret || '—'}
+                            </p>
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400">
+                              Email
+                            </label>
+                            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                              {companyForm.email || '—'}
+                            </p>
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400">
+                              Téléphone
+                            </label>
+                            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                              {companyForm.phone || '—'}
+                            </p>
+                          </div>
+                          <div className="md:col-span-2">
+                            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400">
+                              Adresse
+                            </label>
+                            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                              {[companyForm.address, [companyForm.postalCode, companyForm.city].filter(Boolean).join(' '), companyForm.country]
+                                .filter(Boolean)
+                                .join(', ') || '—'}
+                            </p>
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400">
+                              Site web
+                            </label>
+                            {companyForm.website ? (
+                              <a
+                                href={companyForm.website}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
+                              >
+                                {companyForm.website}
+                              </a>
                             ) : (
-                              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                                Logo
-                              </span>
+                              <p className="text-sm text-slate-500 dark:text-slate-400">—</p>
                             )}
                           </div>
-                          
-                          <div className="space-y-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <h3 className="text-base font-semibold text-slate-900">{company.name}</h3>
-                              {company.isDefault && (
-                                <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
-                                  Défaut
-                                </span>
-                              )}
-                              {activeCompanyId === company.id && (
-                                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                          <div>
+                            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400">
+                              Planning
+                            </label>
+                            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                              {companyForm.planningUser === 'clement' ? 'Clément' : companyForm.planningUser === 'adrien' ? 'Adrien' : 'Tous'}
+                            </p>
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400">
+                              TVA
+                            </label>
+                            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                              {companyForm.vatEnabled ? 'Activée' : 'Désactivée'}
+                            </p>
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400">
+                              Statut
+                            </label>
+                            <div className="flex items-center gap-2">
+                              {activeCompanyId === editingCompanyId && (
+                                <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary dark:bg-primary/20">
+                                  <CheckCircle2 className="h-3.5 w-3.5" />
                                   Active
                                 </span>
                               )}
-                            </div>
-                            <p className="text-xs text-slate-500">SIRET {company.siret}</p>
-                            {company.website && (
-                              <a 
-                                href={company.website} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="text-xs text-primary hover:text-primary/80 transition-colors"
-                              >
-                                {company.website}
-                              </a>
-                            )}
-                          </div>
-                        </div>
-                        
-                        {/* Actions */}
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <RowActionButton label="Modifier" onClick={() => openCompanyDetail(company)}>
-                            <IconEdit />
-                          </RowActionButton>
-                          <RowActionButton label="Supprimer" tone="danger" onClick={() => handleCompanyRemove(company.id)}>
-                            <IconTrash />
-                          </RowActionButton>
-                        </div>
-                      </div>
-
-                      {/* Informations principales */}
-                      <div className="space-y-3 text-sm">
-                        {/* Coordonnées */}
-                        {contactSummary && (
-                          <div className="flex items-start justify-between gap-3">
-                            <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Coordonnées</span>
-                            <span className="text-right text-slate-600">{contactSummary}</span>
-                          </div>
-                        )}
-
-                        {/* Adresse */}
-                        {addressSummaryLines.length > 0 && (
-                          <div className="flex items-start justify-between gap-3">
-                            <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Adresse</span>
-                            <div className="text-right text-slate-600">
-                              {addressSummaryLines.map((line, index) => (
-                                <p key={`${company.id}-address-${index}`} className="text-sm">
-                                  {line}
-                                </p>
-                              ))}
+                              {companies.find((c) => c.id === editingCompanyId)?.isDefault && (
+                                <span className="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+                                  Défaut
+                                </span>
+                              )}
                             </div>
                           </div>
-                        )}
-
-                        {/* Planning */}
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Planning</span>
-                          <span className="text-sm font-medium text-slate-700">{planningLabel}</span>
                         </div>
 
-                        {/* TVA */}
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">TVA</span>
-                          <label className="flex items-center gap-2 text-sm">
-                            <input
-                              type="checkbox"
-                              checked={company.vatEnabled}
-                              onChange={(event) => handleCompanyVatToggle(company, event.target.checked)}
-                              className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/40"
-                            />
-                            <span className={company.vatEnabled ? 'text-slate-700 font-medium' : 'text-slate-500'}>
-                              {company.vatEnabled ? 'Activée' : 'Désactivée'}
-                            </span>
-                          </label>
-                        </div>
-
-                        {/* Mentions légales */}
-                        {company.legalNotes && (
-                          <div>
-                            <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Mentions légales</span>
-                            <div className="mt-1 max-h-20 overflow-hidden rounded border border-slate-200 bg-slate-50 px-2 py-1">
-                              <p className="whitespace-pre-line text-xs text-slate-600">{company.legalNotes}</p>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Actions en bas */}
-                      <div className="mt-4 pt-3 border-t border-slate-200">
-                        <div className="flex items-center justify-between">
-                          <div className="flex gap-2">
-                            {!company.isDefault && (
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleCompanySetDefault(company)}
-                                className="text-xs"
-                              >
-                                Définir par défaut
-                              </Button>
-                            )}
-                            {activeCompanyId !== company.id && (
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setActiveCompany(company.id)}
-                                className="text-xs"
-                              >
-                                Activer
-                              </Button>
-                            )}
-                          </div>
-                          
-                          {activeCompanyId === company.id && (
-                            <span className="text-xs font-medium text-slate-600">
-                              Actuellement active
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </Card>
-                  );
-                })}
-                {!companies.length && (
-                  <div className="col-span-full flex flex-col items-center justify-center rounded border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
-                    <h3 className="mb-2 text-base font-semibold text-slate-900">Aucune entreprise</h3>
-                    <p className="mb-4 text-sm text-slate-600 max-w-md">
-                      Ajoutez votre première entreprise pour commencer à générer des documents officiels.
-                    </p>
-                    <Button onClick={() => openCompanyDetail(null)} className="inline-flex items-center gap-2">
-                      <IconPlus />
-                      Créer une entreprise
-                    </Button>
-                  </div>
-                )}
-              </div>
-
-              {/* Composant de test backend (legacy supprimé) */}
-              <div className="mt-8">
-                {/* Composant de test legacy supprimé */}
-              </div>
-            </div>
-          )}
-
-          {activeSection === 'signatures' && hasSettingsPermission('signatures') && (
-            <div
-              ref={signaturesSectionRef}
-              tabIndex={-1}
-              className="space-y-6 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-            >
-              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <h2 className="text-base font-semibold text-slate-900">Signatures</h2>
-                  <p className="mt-1 text-sm text-slate-500">
-                    Centralisez vos signatures e-mail par entreprise ou par utilisateur et définissez celles à appliquer par défaut.
-                  </p>
-                </div>
-                <Button onClick={() => openSignatureDetail(null, 'company', activeCompanyId ?? companies[0]?.id ?? null, currentUserId)}>
-                  <IconPlus />
-                  Créer une signature
-                </Button>
-              </div>
-
-              <div className="space-y-4">
-                {emailSignatures.map((signature) => {
-                  const company = signature.companyId ? companies.find((item) => item.id === signature.companyId) : null;
-                  const user = signature.userId ? authUsers.find((item) => item.id === signature.userId) : null;
-                  const previewHtml = signature.html || signaturePreviewHtml;
-                  return (
-                    <Card key={signature.id} padding="lg" className="space-y-4">
-                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                        <div className="space-y-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-sm font-semibold text-slate-900">{signature.label}</span>
-                            <span className="rounded-full border border-slate-300 px-2 py-0.5 text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                              {signature.scope === 'company' ? 'Entreprise' : signature.scope === 'user' ? 'Utilisateur' : 'Globale'}
-                            </span>
-                            {signature.isDefault && (
-                              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">
-                                Défaut
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-xs uppercase tracking-[0.12em] text-slate-400">
-                            {signature.scope === 'company' && company ? company.name : null}
-                            {signature.scope === 'user' && user ? user.fullName : null}
-                          </p>
-                          <p className="text-xs text-slate-500">Mis à jour {formatSignatureDate(signature.updatedAt)}</p>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Button
+                        <div className="mt-2 flex flex-wrap items-center justify-end gap-3 border-t border-slate-200 pt-3 dark:border-slate-800">
+                          <button
                             type="button"
-                            variant={signature.isDefault ? 'subtle' : 'ghost'}
-                            size="sm"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              setDefaultEmailSignature(signature.id);
+                            onClick={() => {
+                              setShowCompanyModal(false);
+                              setEditingCompanyId(null);
                             }}
+                            className="rounded-lg border border-slate-200 bg-white px-4 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
                           >
-                            {signature.isDefault ? 'Par défaut' : 'Définir par défaut'}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() =>
-                              openSignatureDetail(
-                                signature,
-                                signature.scope,
-                                signature.scope === 'company'
-                                  ? signature.companyId
-                                  : signature.companyId ?? activeCompanyId ?? companies[0]?.id ?? null,
-                                signature.scope === 'user' ? signature.userId : currentUserId
-                              )
-                            }
+                            Fermer
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const company = companies.find((c) => c.id === editingCompanyId);
+                              if (company) {
+                                setShowCompanyModal(false);
+                                setEditingCompanyId(null);
+                                openCompanyDetail(company);
+                              }
+                            }}
+                            className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white shadow-lg shadow-blue-600/25 transition hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 dark:bg-blue-500 dark:hover:bg-blue-600"
                           >
-                            Modifier
-                          </Button>
-                          <RowActionButton label="Supprimer" tone="danger" onClick={() => removeEmailSignature(signature.id)}>
-                            <IconTrash />
-                          </RowActionButton>
+                            <IconEdit />
+                            Modifier en détail
+                          </button>
                         </div>
                       </div>
-                      <div className="grid gap-3 md:grid-cols-2">
-                        <div className="rounded-soft border border-slate-200 bg-white p-3">
-                          <h4 className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">Aperçu clair</h4>
-                          <div className="prose prose-sm max-w-none text-slate-600" dangerouslySetInnerHTML={{ __html: previewHtml }} />
-                        </div>
-                        <div className="rounded-soft border border-slate-800 bg-slate-900 p-3 text-slate-200">
-                          <h4 className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-300">Aperçu sombre</h4>
-                          <div className="prose prose-sm max-w-none text-slate-200" dangerouslySetInnerHTML={{ __html: previewHtml }} />
-                        </div>
-                      </div>
-                    </Card>
-                  );
-                })}
-                {!emailSignatures.length && (
-                  <div className="rounded-soft border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-500">
-                    Créez votre première signature pour accélérer vos envois de documents.
-                  </div>
+                    </div>
+                  </div>,
+                  document.body
                 )}
-              </div>
             </div>
           )}
+
 
           {activeSection === 'catalog' && hasSettingsPermission('catalog') && (
             <div
@@ -1933,144 +1928,258 @@ const SettingsPage = () => {
                       value={catalogServiceQuery}
                       onChange={(event) => setCatalogServiceQuery(event.target.value)}
                       placeholder="Rechercher un service…"
-                      className="w-full rounded-soft border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                     />
                   </div>
-                  <div className="data-table__outer">
-                    <div className="data-table__scroll">
-                      <table className="data-table">
-                        <thead>
+                  <div className="hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-colors dark:border-[var(--border)] dark:bg-[var(--surface)] lg:block">
+                    <div className="overflow-x-auto rounded-2xl">
+                      <table className="w-full">
+                        <thead className="border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/60">
                           <tr>
-                            <th className="data-table__header-cell">
+                            <th className="px-6 py-5 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
                               <button
                                 type="button"
                                 onClick={() => toggleCatalogServiceSort('name')}
-                                className="data-table__sort"
+                                className="flex items-center gap-2 hover:text-slate-900 dark:hover:text-slate-100"
                               >
                                 Nom
                                 {catalogServiceSort.key === 'name' && (
-                                  <span className="data-table__sort-indicator">
+                                  <span className="text-xs">
                                     {catalogServiceSort.direction === 'asc' ? '▲' : '▼'}
                                   </span>
                                 )}
                               </button>
                             </th>
-                            <th className="data-table__header-cell">
+                            <th className="px-6 py-5 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
                               <button
                                 type="button"
                                 onClick={() => toggleCatalogServiceSort('category')}
-                                className="data-table__sort"
+                                className="flex items-center gap-2 hover:text-slate-900 dark:hover:text-slate-100"
                               >
                                 Catégorie
                                 {catalogServiceSort.key === 'category' && (
-                                  <span className="data-table__sort-indicator">
+                                  <span className="text-xs">
                                     {catalogServiceSort.direction === 'asc' ? '▲' : '▼'}
                                   </span>
                                 )}
                               </button>
                             </th>
-                            <th className="data-table__header-cell">
+                            <th className="px-6 py-5 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
                               <button
                                 type="button"
                                 onClick={() => toggleCatalogServiceSort('active')}
-                                className="data-table__sort"
+                                className="flex items-center gap-2 hover:text-slate-900 dark:hover:text-slate-100"
                               >
                                 Statut
                                 {catalogServiceSort.key === 'active' && (
-                                  <span className="data-table__sort-indicator">
+                                  <span className="text-xs">
                                     {catalogServiceSort.direction === 'asc' ? '▲' : '▼'}
                                   </span>
                                 )}
                               </button>
                             </th>
-                            <th className="data-table__header-cell data-table__header-cell--numeric data-table__header-cell--optional">
+                            <th className="px-6 py-5 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
                               <button
                                 type="button"
                                 onClick={() => toggleCatalogServiceSort('count')}
-                                className="data-table__sort"
+                                className="flex items-center gap-2 hover:text-slate-900 dark:hover:text-slate-100"
                               >
                                 Prestations
                                 {catalogServiceSort.key === 'count' && (
-                                  <span className="data-table__sort-indicator">
+                                  <span className="text-xs">
                                     {catalogServiceSort.direction === 'asc' ? '▲' : '▼'}
                                   </span>
                                 )}
                               </button>
                             </th>
-                            <th className="data-table__header-cell data-table__header-cell--actions">Actions</th>
+                            <th className="px-6 py-5 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                              Actions
+                            </th>
                           </tr>
                         </thead>
-                        <tbody>
+                        <tbody className="divide-y divide-slate-100">
                           {sortedCatalogServices.map((service) => (
                             <tr
                               key={service.id}
                               onClick={() => setSelectedCatalogServiceId(service.id)}
                               className={clsx(
-                                'data-table__row',
-                                'data-table__row--selectable',
-                                selectedCatalogService?.id === service.id && 'data-table__row--active'
+                                'group cursor-pointer transition hover:bg-slate-50 dark:hover:bg-white/5',
+                                selectedCatalogService?.id === service.id && 'bg-blue-50/50 dark:bg-blue-500/10'
                               )}
                             >
-                              <td className="data-table__cell data-table__cell--primary">
-                                <div>
-                                  <span>{service.name}</span>
-                                  {service.description && (
-                                    <span className="data-table__meta">{service.description}</span>
-                                  )}
+                              <td className="px-6 py-6 align-middle">
+                                <div className="flex items-center gap-3">
+                                  <div className="space-y-1">
+                                    <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                                      {service.name}
+                                    </p>
+                                    {service.description && (
+                                      <p className="text-xs text-slate-500 dark:text-slate-400">{service.description}</p>
+                                    )}
+                                  </div>
                                 </div>
                               </td>
-                              <td className="data-table__cell">{service.category}</td>
-                              <td className="data-table__cell data-table__cell--status">
+                              <td className="px-6 py-6 align-middle">
+                                <span className="inline-flex items-center rounded-full px-3 py-1.5 text-xs font-medium bg-purple-200 text-purple-800 dark:bg-purple-900/30 dark:text-purple-200">
+                                  {service.category}
+                                </span>
+                              </td>
+                              <td className="px-6 py-6 align-middle">
                                 <span
-                                  className={clsx('status-pill', !service.active && 'status-pill--inactive')}
+                                  className={clsx(
+                                    'inline-flex items-center rounded-full px-3 py-1.5 text-xs font-medium border shadow-[0_1px_0_rgba(16,185,129,0.35)]',
+                                    service.active
+                                      ? 'bg-emerald-200 text-emerald-800 border-emerald-300 dark:bg-emerald-900/30 dark:text-emerald-200 dark:border-emerald-700'
+                                      : 'bg-slate-200 text-slate-700 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600'
+                                  )}
                                 >
                                   {service.active ? 'Actif' : 'Inactif'}
                                 </span>
                               </td>
-                              <td className="data-table__cell data-table__cell--numeric data-table__cell--optional">
-                                {service.options.length}
+                              <td className="px-6 py-6 align-middle">
+                                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                  {service.options.length}
+                                </p>
                               </td>
-                              <td className="data-table__cell data-table__cell--actions">
-                                <div className="flex items-center justify-end gap-1.5">
-                                  <RowActionButton
-                                    label="Modifier"
-                                    onClick={() => {
+                              <td className="px-6 py-6 align-middle">
+                                <div className="flex items-center justify-start gap-2 opacity-100 transition group-hover:translate-x-[1px] group-hover:opacity-100">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
                                       openCatalogServiceDetail(service);
                                     }}
+                                    className="rounded-lg p-2 text-slate-600 transition hover:bg-slate-100 hover:text-slate-800 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                                    title="Modifier"
                                   >
                                     <IconEdit />
-                                  </RowActionButton>
-                                  <RowActionButton
-                                    label="Dupliquer"
-                                    onClick={() => {
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
                                       handleCatalogServiceDuplicate(service);
                                     }}
+                                    className="rounded-lg p-2 text-slate-600 transition hover:bg-blue-100 hover:text-blue-700 dark:text-slate-300 dark:hover:bg-blue-900/30 dark:hover:text-blue-200"
+                                    title="Dupliquer"
                                   >
                                     <IconDuplicate />
-                                  </RowActionButton>
-                                  <RowActionButton
-                                    label="Supprimer"
-                                    tone="danger"
-                                    onClick={() => {
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
                                       handleCatalogServiceDelete(service.id);
                                     }}
+                                    className="rounded-lg p-2 text-slate-600 transition hover:bg-rose-100 hover:text-rose-600 dark:text-slate-300 dark:hover:bg-rose-900/30 dark:hover:text-rose-200"
+                                    title="Supprimer"
                                   >
                                     <IconTrash />
-                                  </RowActionButton>
+                                  </button>
                                 </div>
                               </td>
                             </tr>
                           ))}
-                          {!sortedCatalogServices.length && (
-                            <tr>
-                              <td colSpan={5} className="data-table__empty">
-                                Aucun service enregistré pour le moment.
-                              </td>
-                            </tr>
-                          )}
                         </tbody>
                       </table>
                     </div>
+                  </div>
+                  {sortedCatalogServices.length === 0 && (
+                    <div className="hidden lg:block rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                      <h3 className="mb-2 text-lg font-semibold text-slate-800 dark:text-slate-100">Aucun service enregistré</h3>
+                      <p className="text-sm text-slate-500 dark:text-slate-400">
+                        Créez votre premier service pour commencer.
+                      </p>
+                    </div>
+                  )}
+                  <div className="space-y-4 lg:hidden">
+                    {sortedCatalogServices.map((service) => (
+                      <div
+                        key={service.id}
+                        onClick={() => setSelectedCatalogServiceId(service.id)}
+                        className={clsx(
+                          'cursor-pointer space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-colors dark:border-[var(--border)] dark:bg-[var(--surface)]',
+                          selectedCatalogService?.id === service.id && 'border-blue-500 bg-blue-50/50 dark:bg-blue-500/10'
+                        )}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100">
+                              {service.name}
+                            </h3>
+                            {service.description && (
+                              <p className="text-sm text-slate-500 dark:text-slate-400">{service.description}</p>
+                            )}
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <span className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium bg-purple-200 text-purple-800 dark:bg-purple-900/30 dark:text-purple-200">
+                                {service.category}
+                              </span>
+                              <span
+                                className={clsx(
+                                  'inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium',
+                                  service.active
+                                    ? 'bg-emerald-200 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-200'
+                                    : 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                                )}
+                              >
+                                {service.active ? 'Actif' : 'Inactif'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="space-y-3 text-sm text-slate-600 dark:text-slate-300">
+                          <div className="flex items-center justify-between">
+                            <span>Prestations</span>
+                            <span className="font-semibold text-slate-800 dark:text-slate-100">
+                              {service.options.length}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-2 border-t border-slate-200 pt-4 dark:border-slate-800">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openCatalogServiceDetail(service);
+                            }}
+                            className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                          >
+                            <IconEdit />
+                            Modifier
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleCatalogServiceDuplicate(service);
+                            }}
+                            className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-200 dark:hover:bg-blue-900/40"
+                          >
+                            <IconDuplicate />
+                            Dupliquer
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleCatalogServiceDelete(service.id);
+                            }}
+                            className="rounded-lg bg-rose-50 p-2 text-rose-600 transition hover:bg-rose-100 dark:bg-rose-900/30 dark:text-rose-200 dark:hover:bg-rose-900/40"
+                            title="Supprimer"
+                          >
+                            <IconTrash />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {sortedCatalogServices.length === 0 && (
+                      <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                        <h3 className="mb-2 text-lg font-semibold text-slate-800 dark:text-slate-100">Aucun service enregistré</h3>
+                        <p className="text-sm text-slate-500 dark:text-slate-400">
+                          Créez votre premier service pour commencer.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </Card>
                 <Card
@@ -2098,151 +2207,258 @@ const SettingsPage = () => {
                           value={catalogItemQuery}
                           onChange={(event) => setCatalogItemQuery(event.target.value)}
                           placeholder="Rechercher une prestation…"
-                          className="w-full rounded-soft border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                         />
                       </div>
-                      <div className="data-table__outer">
-                        <div className="data-table__scroll">
-                          <table className="data-table">
-                            <thead>
+                      <div className="hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-colors dark:border-[var(--border)] dark:bg-[var(--surface)] lg:block">
+                        <div className="overflow-x-auto rounded-2xl">
+                          <table className="w-full">
+                            <thead className="border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/60">
                               <tr>
-                                <th className="data-table__header-cell">
+                                <th className="px-6 py-5 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
                                   <button
                                     type="button"
                                     onClick={() => toggleCatalogItemSort('label')}
-                                    className="data-table__sort"
+                                    className="flex items-center gap-2 hover:text-slate-900 dark:hover:text-slate-100"
                                   >
                                     Libellé
                                     {catalogItemSort.key === 'label' && (
-                                      <span className="data-table__sort-indicator">
+                                      <span className="text-xs">
                                         {catalogItemSort.direction === 'asc' ? '▲' : '▼'}
                                       </span>
                                     )}
                                   </button>
                                 </th>
-                                <th className="data-table__header-cell data-table__header-cell--numeric">
+                                <th className="px-6 py-5 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
                                   <button
                                     type="button"
                                     onClick={() => toggleCatalogItemSort('duration')}
-                                    className="data-table__sort"
+                                    className="flex items-center gap-2 hover:text-slate-900 dark:hover:text-slate-100"
                                   >
                                     Durée
                                     {catalogItemSort.key === 'duration' && (
-                                      <span className="data-table__sort-indicator">
+                                      <span className="text-xs">
                                         {catalogItemSort.direction === 'asc' ? '▲' : '▼'}
                                       </span>
                                     )}
                                   </button>
                                 </th>
-                                <th className="data-table__header-cell data-table__header-cell--numeric">
+                                <th className="px-6 py-5 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
                                   <button
                                     type="button"
                                     onClick={() => toggleCatalogItemSort('price')}
-                                    className="data-table__sort"
+                                    className="flex items-center gap-2 hover:text-slate-900 dark:hover:text-slate-100"
                                   >
                                     Prix HT
                                     {catalogItemSort.key === 'price' && (
-                                      <span className="data-table__sort-indicator">
+                                      <span className="text-xs">
                                         {catalogItemSort.direction === 'asc' ? '▲' : '▼'}
                                       </span>
                                     )}
                                   </button>
                                 </th>
                                 {vatGloballyEnabled && (
-                                  <th className="data-table__header-cell data-table__header-cell--numeric data-table__header-cell--optional">
+                                  <th className="px-6 py-5 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
                                     <button
                                       type="button"
                                       onClick={() => toggleCatalogItemSort('tva')}
-                                      className="data-table__sort"
+                                      className="flex items-center gap-2 hover:text-slate-900 dark:hover:text-slate-100"
                                     >
                                       TVA %
                                       {catalogItemSort.key === 'tva' && (
-                                        <span className="data-table__sort-indicator">
+                                        <span className="text-xs">
                                           {catalogItemSort.direction === 'asc' ? '▲' : '▼'}
                                         </span>
                                       )}
                                     </button>
                                   </th>
                                 )}
-                                <th className="data-table__header-cell">
+                                <th className="px-6 py-5 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
                                   <button
                                     type="button"
                                     onClick={() => toggleCatalogItemSort('active')}
-                                    className="data-table__sort"
+                                    className="flex items-center gap-2 hover:text-slate-900 dark:hover:text-slate-100"
                                   >
-                                    Actif
+                                    Statut
                                     {catalogItemSort.key === 'active' && (
-                                      <span className="data-table__sort-indicator">
+                                      <span className="text-xs">
                                         {catalogItemSort.direction === 'asc' ? '▲' : '▼'}
                                       </span>
                                     )}
                                   </button>
                                 </th>
-                                <th className="data-table__header-cell data-table__header-cell--actions">Actions</th>
+                                <th className="px-6 py-5 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                                  Actions
+                                </th>
                               </tr>
                             </thead>
-                            <tbody>
+                            <tbody className="divide-y divide-slate-100">
                               {sortedCatalogItems.map((option) => (
-                                <tr key={option.id} className="data-table__row">
-                                  <td className="data-table__cell data-table__cell--primary">
-                                    <div>
-                                      <span>{option.label}</span>
-                                      {option.description && (
-                                        <span className="data-table__meta">{option.description}</span>
-                                      )}
+                                <tr
+                                  key={option.id}
+                                  className="group cursor-pointer transition hover:bg-slate-50 dark:hover:bg-white/5"
+                                >
+                                  <td className="px-6 py-6 align-middle">
+                                    <div className="flex items-center gap-3">
+                                      <div className="space-y-1">
+                                        <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                                          {option.label}
+                                        </p>
+                                        {option.description && (
+                                          <p className="text-xs text-slate-500 dark:text-slate-400">{option.description}</p>
+                                        )}
+                                      </div>
                                     </div>
                                   </td>
-                                  <td className="data-table__cell data-table__cell--numeric">
-                                    {option.defaultDurationMin ? `${option.defaultDurationMin} min` : '—'}
+                                  <td className="px-6 py-6 align-middle">
+                                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                      {option.defaultDurationMin ? `${option.defaultDurationMin} min` : '—'}
+                                    </p>
                                   </td>
-                                  <td className="data-table__cell data-table__cell--numeric">
-                                    {formatCurrency(option.unitPriceHT)}
+                                  <td className="px-6 py-6 align-middle">
+                                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                      {formatCurrency(option.unitPriceHT)}
+                                    </p>
                                   </td>
                                   {vatGloballyEnabled && (
-                                    <td className="data-table__cell data-table__cell--numeric data-table__cell--optional">
-                                      {option.tvaPct !== undefined && option.tvaPct !== null ? `${option.tvaPct} %` : '—'}
+                                    <td className="px-6 py-6 align-middle">
+                                      <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                        {option.tvaPct !== undefined && option.tvaPct !== null ? `${option.tvaPct} %` : '—'}
+                                      </p>
                                     </td>
                                   )}
-                                  <td className="data-table__cell data-table__cell--status">
+                                  <td className="px-6 py-6 align-middle">
                                     <span
-                                      className={clsx('status-pill', !option.active && 'status-pill--inactive')}
+                                      className={clsx(
+                                        'inline-flex items-center rounded-full px-3 py-1.5 text-xs font-medium border shadow-[0_1px_0_rgba(16,185,129,0.35)]',
+                                        option.active
+                                          ? 'bg-emerald-200 text-emerald-800 border-emerald-300 dark:bg-emerald-900/30 dark:text-emerald-200 dark:border-emerald-700'
+                                          : 'bg-slate-200 text-slate-700 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600'
+                                      )}
                                     >
                                       {option.active ? 'Actif' : 'Inactif'}
                                     </span>
                                   </td>
-                                  <td className="data-table__cell data-table__cell--actions">
-                                    <div className="flex items-center justify-end gap-1.5">
-                                      <RowActionButton
-                                        label="Modifier"
+                                  <td className="px-6 py-6 align-middle">
+                                    <div className="flex items-center justify-start gap-2 opacity-100 transition group-hover:translate-x-[1px] group-hover:opacity-100">
+                                      <button
+                                        type="button"
                                         onClick={() => {
                                           openCatalogItemDetail(selectedCatalogService.id, option);
                                         }}
+                                        className="rounded-lg p-2 text-slate-600 transition hover:bg-slate-100 hover:text-slate-800 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                                        title="Modifier"
                                       >
                                         <IconEdit />
-                                      </RowActionButton>
-                                      <RowActionButton
-                                        label="Supprimer"
-                                        tone="danger"
+                                      </button>
+                                      <button
+                                        type="button"
                                         onClick={() => {
                                           handleCatalogItemDelete(selectedCatalogService.id, option.id);
                                         }}
+                                        className="rounded-lg p-2 text-slate-600 transition hover:bg-rose-100 hover:text-rose-600 dark:text-slate-300 dark:hover:bg-rose-900/30 dark:hover:text-rose-200"
+                                        title="Supprimer"
                                       >
                                         <IconTrash />
-                                      </RowActionButton>
+                                      </button>
                                     </div>
                                   </td>
                                 </tr>
                               ))}
-                              {!sortedCatalogItems.length && (
-                                <tr>
-                                  <td colSpan={vatGloballyEnabled ? 6 : 5} className="data-table__empty">
-                                    Aucune prestation enregistrée pour ce service.
-                                  </td>
-                                </tr>
-                              )}
                             </tbody>
                           </table>
                         </div>
+                      </div>
+                      {sortedCatalogItems.length === 0 && (
+                        <div className="hidden lg:block rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                          <h3 className="mb-2 text-lg font-semibold text-slate-800 dark:text-slate-100">Aucune prestation enregistrée</h3>
+                          <p className="text-sm text-slate-500 dark:text-slate-400">
+                            Ajoutez votre première prestation pour ce service.
+                          </p>
+                        </div>
+                      )}
+                      <div className="space-y-4 lg:hidden">
+                        {sortedCatalogItems.map((option) => (
+                          <div
+                            key={option.id}
+                            className="cursor-pointer space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-colors dark:border-[var(--border)] dark:bg-[var(--surface)]"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0 flex-1">
+                                <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100">
+                                  {option.label}
+                                </h3>
+                                {option.description && (
+                                  <p className="text-sm text-slate-500 dark:text-slate-400">{option.description}</p>
+                                )}
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  <span
+                                    className={clsx(
+                                      'inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium',
+                                      option.active
+                                        ? 'bg-emerald-200 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-200'
+                                        : 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                                    )}
+                                  >
+                                    {option.active ? 'Actif' : 'Inactif'}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="space-y-3 text-sm text-slate-600 dark:text-slate-300">
+                              <div className="flex items-center justify-between">
+                                <span>Durée</span>
+                                <span className="font-semibold text-slate-800 dark:text-slate-100">
+                                  {option.defaultDurationMin ? `${option.defaultDurationMin} min` : '—'}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <span>Prix HT</span>
+                                <span className="font-semibold text-slate-800 dark:text-slate-100">
+                                  {formatCurrency(option.unitPriceHT)}
+                                </span>
+                              </div>
+                              {vatGloballyEnabled && (
+                                <div className="flex items-center justify-between">
+                                  <span>TVA</span>
+                                  <span className="font-semibold text-slate-800 dark:text-slate-100">
+                                    {option.tvaPct !== undefined && option.tvaPct !== null ? `${option.tvaPct} %` : '—'}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap gap-2 border-t border-slate-200 pt-4 dark:border-slate-800">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  openCatalogItemDetail(selectedCatalogService.id, option);
+                                }}
+                                className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                              >
+                                <IconEdit />
+                                Modifier
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  handleCatalogItemDelete(selectedCatalogService.id, option.id);
+                                }}
+                                className="rounded-lg bg-rose-50 p-2 text-rose-600 transition hover:bg-rose-100 dark:bg-rose-900/30 dark:text-rose-200 dark:hover:bg-rose-900/40"
+                                title="Supprimer"
+                              >
+                                <IconTrash />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                        {sortedCatalogItems.length === 0 && (
+                          <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                            <h3 className="mb-2 text-lg font-semibold text-slate-800 dark:text-slate-100">Aucune prestation enregistrée</h3>
+                            <p className="text-sm text-slate-500 dark:text-slate-400">
+                              Ajoutez votre première prestation pour ce service.
+                            </p>
+                          </div>
+                        )}
                       </div>
                     </>
                   ) : (
@@ -2254,47 +2470,6 @@ const SettingsPage = () => {
               </div>
             </div>
           )}
-
-          {activeSection === 'sidebarTitle' && hasSettingsPermission('sidebarTitle') && (
-            <div
-              ref={sidebarTitleSectionRef}
-              tabIndex={-1}
-              className="space-y-6 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-            >
-              <Card padding="lg" className="space-y-5">
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div className="space-y-1">
-                    <p className="text-sm font-semibold text-slate-900">Titre de la sidebar</p>
-                    <p className="text-xs text-slate-500">
-                      Personnalisez l’en-tête affiché au-dessus de la navigation principale.
-                    </p>
-                  </div>
-                  <Button variant="secondary" size="sm" onClick={openSidebarTitleDetail}>
-                    Modifier
-                  </Button>
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="rounded-soft border border-slate-200 bg-white/60 p-4">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">
-                      Texte affiché
-                    </p>
-                    <p className="mt-2 text-sm font-medium text-slate-800">
-                      {sidebarTitlePreference.text.trim() || '—'}
-                    </p>
-                  </div>
-                  <div className="rounded-soft border border-slate-200 bg-white/60 p-4">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">
-                      Visibilité
-                    </p>
-                    <p className="mt-2 text-sm font-medium text-slate-800">
-                      {sidebarTitlePreference.hidden ? 'Masquée' : 'Visible'}
-                    </p>
-                  </div>
-                </div>
-              </Card>
-            </div>
-          )}
-
           {activeSection === 'users' && hasSettingsPermission('users') && (
             <div
               ref={usersSectionRef}
@@ -2360,13 +2535,12 @@ const SettingsPage = () => {
           )}
 
         </div>
-      </div>
-      {detailState && (
-        <div
-          ref={detailContainerRef}
-          id={detailAnchors[detailState.section]}
-          className="mt-12"
-        >
+        {detailState && (
+          <div
+            ref={detailContainerRef}
+            id={detailAnchors[detailState.section]}
+            className="mt-12"
+          >
           <div className="rounded-soft border border-slate-200 bg-white shadow-sm">
             <div className="flex flex-col gap-2 border-b border-slate-200 bg-slate-50 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -2385,108 +2559,6 @@ const SettingsPage = () => {
                 {detailModeLabel}
               </span>
             </div>
-            {detailState.section === 'profile' && (
-              <form onSubmit={handleProfileSubmit} className="text-sm text-slate-600">
-                <div className="space-y-5 px-6 py-6">
-                  <div className={detailFormGridClass}>
-                    <label className={fieldLabelClass}>
-                      <span>Prénom</span>
-                      <input
-                        name="firstName"
-                        value={profileForm.firstName}
-                        onChange={handleProfileChange}
-                        className={inputClass}
-                        required
-                      />
-                    </label>
-                    <label className={fieldLabelClass}>
-                      <span>Nom</span>
-                      <input
-                        name="lastName"
-                        value={profileForm.lastName}
-                        onChange={handleProfileChange}
-                        className={inputClass}
-                        required
-                      />
-                    </label>
-                  </div>
-                  <div className={detailFormGridClass}>
-                    <label className={fieldLabelClass}>
-                      <span>E-mail</span>
-                      <input
-                        type="email"
-                        name="email"
-                        value={profileForm.email}
-                        onChange={handleProfileChange}
-                        className={inputClass}
-                        required
-                      />
-                    </label>
-                    <label className={fieldLabelClass}>
-                      <span>Téléphone</span>
-                      <input name="phone" value={profileForm.phone} onChange={handleProfileChange} className={inputClass} />
-                    </label>
-                  </div>
-                  <label className={fieldLabelClass}>
-                    <span>Rôle</span>
-                    <input name="role" value={profileForm.role} onChange={handleProfileChange} className={inputClass} />
-                  </label>
-                  <div className="space-y-3">
-                    <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Photo de profil</span>
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                      <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-100 text-lg font-semibold text-slate-500 shadow-inner">
-                        {profileForm.avatarUrl ? (
-                          <img src={profileForm.avatarUrl} alt="Aperçu avatar" className="h-full w-full object-cover" />
-                        ) : (
-                          <span>{getInitials(profileForm.firstName, profileForm.lastName)}</span>
-                        )}
-                      </div>
-                      <div className="flex flex-1 flex-col gap-2 text-xs text-slate-500">
-                        <div className="flex flex-wrap gap-2">
-                          <Button type="button" variant="outline" size="sm" onClick={handleAvatarSelect}>
-                            Choisir une image
-                          </Button>
-                          {profileForm.avatarUrl && (
-                            <Button type="button" variant="ghost" size="sm" onClick={handleAvatarClear}>
-                              Retirer
-                            </Button>
-                          )}
-                        </div>
-                        <input
-                          ref={avatarFileInputRef}
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={handleAvatarUpload}
-                        />
-                        <label className={fieldLabelClass}>
-                          <span>Lien externe (optionnel)</span>
-                          <input
-                            name="avatarUrl"
-                            value={profileForm.avatarUrl}
-                            onChange={handleProfileChange}
-                            className={inputClass}
-                            placeholder="https://…"
-                          />
-                        </label>
-                        <p className="text-[11px] text-slate-400">
-                          Les fichiers importés sont convertis en data URL et conservés pour vos prochaines connexions.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 bg-slate-50 px-6 py-4">
-                  <Button type="button" variant="ghost" onClick={handleProfileCancel}>
-                    Annuler
-                  </Button>
-                  <Button type="button" variant="outline" onClick={() => closeDetail('profile')}>
-                    Fermer
-                  </Button>
-                  <Button type="submit">Enregistrer</Button>
-                </div>
-              </form>
-            )}
             {detailState.section === 'companies' && (
               <form onSubmit={handleCompanySubmit} className="text-sm text-slate-600">
                 <div className="space-y-5 px-6 py-6">
@@ -3024,147 +3096,6 @@ const SettingsPage = () => {
                   </form>
                 );
               })()}
-            {detailState.section === 'signatures' && (
-              <form onSubmit={handleSignatureSubmit} className="text-sm text-slate-600">
-                <div className="space-y-5 px-6 py-6">
-                  <div className={detailFormGridClass}>
-                    <label className={fieldLabelClass}>
-                      <span>Libellé</span>
-                      <input
-                        name="label"
-                        value={signatureForm.label}
-                        onChange={handleSignatureInputChange}
-                        className={inputClass}
-                        required
-                      />
-                    </label>
-                    <label className={fieldLabelClass}>
-                      <span>Type</span>
-                      <select value={signatureForm.scope} onChange={handleSignatureScopeChange} className={inputClass}>
-                        <option value="company">Entreprise</option>
-                        <option value="user">Utilisateur</option>
-                      </select>
-                    </label>
-                  </div>
-                  {signatureForm.scope === 'company' && (
-                    <label className={fieldLabelClass}>
-                      <span>Entreprise</span>
-                      <select
-                        value={signatureForm.companyId ?? ''}
-                        onChange={handleSignatureCompanyChange}
-                        className={inputClass}
-                        required
-                      >
-                        <option value="" disabled>
-                          Sélectionnez une entreprise
-                        </option>
-                        {companies.map((company) => (
-                          <option key={company.id} value={company.id}>
-                            {company.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
-                  {signatureForm.scope === 'user' && (
-                    <label className={fieldLabelClass}>
-                      <span>Utilisateur</span>
-                      <select
-                        value={signatureForm.userId ?? ''}
-                        onChange={handleSignatureUserChange}
-                        className={inputClass}
-                        required
-                      >
-                        <option value="" disabled>
-                          Sélectionnez un utilisateur
-                        </option>
-                        {authUsers.map((user) => (
-                          <option key={user.id} value={user.id}>
-                            {user.fullName}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
-                  <div className="rounded-soft border border-slate-200 bg-slate-50 p-4">
-                    <SignatureEditor
-                      value={signatureForm.html}
-                      onChange={handleSignatureHtmlChange}
-                      useDefault={signatureForm.isDefault}
-                      onToggleDefault={(next) => setSignatureForm((prev) => ({ ...prev, isDefault: next }))}
-                      variables={SIGNATURE_VARIABLES}
-                      lightPreviewHtml={signaturePreviewHtml}
-                      darkPreviewHtml={signaturePreviewHtml}
-                      defaultLabel={`Définir comme signature par défaut pour les envois ${BRAND_NAME}`}
-                    />
-                  </div>
-                </div>
-                <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 bg-slate-50 px-6 py-4">
-                  <Button type="button" variant="ghost" onClick={handleSignatureCancel}>
-                    Annuler
-                  </Button>
-                  <Button type="button" variant="outline" onClick={closeSignatureDetail}>
-                    Fermer
-                  </Button>
-                  <Button type="submit">Enregistrer</Button>
-                </div>
-              </form>
-            )}
-            {detailState.section === 'sidebarTitle' && (
-              <form onSubmit={handleSidebarTitleSubmit} className="text-sm text-slate-600">
-                <div className="space-y-5 px-6 py-6">
-                  <label className={fieldLabelClass}>
-                    <span>Titre affiché</span>
-                    <input
-                      value={sidebarTitleForm.text}
-                      onChange={handleSidebarTitleTextChange}
-                      className={inputClass}
-                      placeholder={BRAND_FULL_TITLE}
-                    />
-                  </label>
-                  <label className="flex items-center justify-between gap-3 rounded-soft border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
-                    <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-                      Masquer complètement l’en-tête
-                    </span>
-                    <input
-                      type="checkbox"
-                      checked={sidebarTitleForm.hidden}
-                      onChange={handleSidebarTitleVisibilityChange}
-                      className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary/40"
-                    />
-                  </label>
-                  <div className="rounded-soft border border-slate-200 bg-slate-50 p-4 text-xs text-slate-500">
-                    <p className="font-semibold text-slate-600">Aperçu</p>
-                    {!sidebarTitleForm.hidden ? (
-                      <div className="mt-3 space-y-1 rounded-soft border border-slate-200 bg-white p-4 text-left">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.32em] text-slate-400">{BRAND_NAME}</p>
-                        {sidebarTitleForm.text.trim() && (
-                          <p className="text-base font-semibold text-slate-900">{sidebarTitleForm.text.trim()}</p>
-                        )}
-                        {showBrandBaseline && (
-                          <p className="text-xs text-slate-500 dark:text-slate-400">{brandBaseline}</p>
-                        )}
-                      </div>
-                    ) : (
-                      <p className="mt-3 text-[11px] uppercase tracking-[0.12em] text-slate-400">Zone masquée</p>
-                    )}
-                  </div>
-                </div>
-                <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 bg-slate-50 px-6 py-4">
-                  <Button type="button" variant="ghost" onClick={handleSidebarTitleCancel}>
-                    Annuler
-                  </Button>
-                  <Button type="button" variant="outline" onClick={() => closeDetail('sidebarTitle')}>
-                    Fermer
-                  </Button>
-                  <Button type="button" variant="subtle" onClick={handleSidebarTitleReset}>
-                    Réinitialiser
-                  </Button>
-                  <Button type="submit">Enregistrer</Button>
-                </div>
-              </form>
-            )}
-
             {detailState.section === 'users' && (
               <form onSubmit={handleUserSubmit} className="text-sm text-slate-600">
                 <div className="space-y-5 px-6 py-6">
@@ -3270,27 +3201,57 @@ const SettingsPage = () => {
                                 case 'admin':
                                   setUserForm(prev => ({ 
                                     ...prev, 
-                                    pages: ['dashboard', 'clients', 'leads', 'service', 'achats', 'documents', 'planning', 'stats', 'parametres'],
+                                    pages: [
+                                      'dashboard',
+                                      'clients',
+                                      'leads',
+                                      'service',
+                                  'comptabilite.achats',
+                                      'planning',
+                                      'stats',
+                                      'parametres',
+                                      'administratif',
+                                      'administratif.overview',
+                                      'administratif.documents',
+                                    ],
                                     permissions: ['*']
                                   }));
                                   break;
                                 case 'manager':
                                   setUserForm(prev => ({ 
                                     ...prev, 
-                                    pages: ['dashboard', 'clients', 'leads', 'service', 'planning', 'stats'],
+                                    pages: [
+                                      'dashboard',
+                                      'clients',
+                                      'leads',
+                                      'service',
+                                      'planning',
+                                      'stats',
+                                      'administratif',
+                                      'administratif.overview',
+                                      'administratif.documents',
+                                    ],
                                     permissions: [
                                       'service.create', 'service.edit', 'service.duplicate', 'service.invoice', 'service.print', 'service.email',
                                       'lead.edit', 'lead.contact', 'lead.convert',
                                       'client.edit', 'client.contact.add', 'client.invoice', 'client.quote', 'client.email',
                                       'documents.view', 'documents.edit', 'documents.send',
-                                      'settings.profile', 'settings.companies', 'settings.signatures', 'settings.catalog'
+                                      'settings.profile', 'settings.companies', 'settings.catalog'
                                     ]
                                   }));
                                   break;
                                 case 'agent':
                                   setUserForm(prev => ({ 
                                     ...prev, 
-                                    pages: ['dashboard', 'clients', 'service', 'planning'],
+                                    pages: [
+                                      'dashboard',
+                                      'clients',
+                                      'service',
+                                      'planning',
+                                      'administratif',
+                                      'administratif.overview',
+                                      'administratif.documents',
+                                    ],
                                     permissions: [
                                       'service.create', 'service.edit', 'service.invoice', 'service.print', 'service.email',
                                       'client.edit', 'client.contact.add',
@@ -3302,7 +3263,15 @@ const SettingsPage = () => {
                                 case 'lecture':
                                   setUserForm(prev => ({ 
                                     ...prev, 
-                                    pages: ['dashboard', 'clients', 'service', 'stats'],
+                                    pages: [
+                                      'dashboard',
+                                      'clients',
+                                      'service',
+                                      'stats',
+                                      'administratif',
+                                      'administratif.overview',
+                                      'administratif.documents',
+                                    ],
                                     permissions: ['documents.view']
                                   }));
                                   break;
@@ -3438,6 +3407,188 @@ const SettingsPage = () => {
           </div>
         </div>
       )}
+
+      {showProfileModal &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/40 backdrop-blur-md px-4 py-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-profile-title"
+            onClick={closeProfileModal}
+          >
+            <div
+              className="relative w-full max-w-2xl max-h-[90vh] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl ring-1 ring-slate-900/10 transition dark:border-slate-700 dark:bg-slate-900"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <form
+                onSubmit={handleProfileSubmit}
+                className="flex flex-col gap-4 bg-white p-4 md:p-6 text-slate-900 dark:bg-slate-900 dark:text-slate-100 max-h-[90vh] overflow-y-auto"
+              >
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-blue-500">MODIFIER MON PROFIL</span>
+                    <h2 id="edit-profile-title" className="text-xl font-semibold text-slate-900 dark:text-slate-100">
+                      {userProfile.firstName} {userProfile.lastName}
+                    </h2>
+                    <p className="max-w-lg text-xs text-slate-500 dark:text-slate-400">
+                      Mettez à jour vos informations personnelles et votre photo de profil.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closeProfileModal}
+                    className="ml-auto flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                    aria-label="Fermer"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400" htmlFor="profile-first-name">
+                        Prénom *
+                      </label>
+                      <input
+                        id="profile-first-name"
+                        name="firstName"
+                        type="text"
+                        value={profileForm.firstName}
+                        onChange={handleProfileChange}
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400" htmlFor="profile-last-name">
+                        Nom *
+                      </label>
+                      <input
+                        id="profile-last-name"
+                        name="lastName"
+                        type="text"
+                        value={profileForm.lastName}
+                        onChange={handleProfileChange}
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400" htmlFor="profile-email">
+                        E-mail *
+                      </label>
+                      <input
+                        id="profile-email"
+                        name="email"
+                        type="email"
+                        value={profileForm.email}
+                        onChange={handleProfileChange}
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400" htmlFor="profile-phone">
+                        Téléphone
+                      </label>
+                      <input
+                        id="profile-phone"
+                        name="phone"
+                        type="tel"
+                        value={profileForm.phone}
+                        onChange={handleProfileChange}
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400" htmlFor="profile-role">
+                      Rôle
+                    </label>
+                    <input
+                      id="profile-role"
+                      name="role"
+                      type="text"
+                      value={profileForm.role}
+                      onChange={handleProfileChange}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                    />
+                  </div>
+
+                  <div className="space-y-3">
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400">Photo de profil</span>
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                      <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-100 text-lg font-semibold text-slate-500 shadow-inner">
+                        {profileForm.avatarUrl ? (
+                          <img src={profileForm.avatarUrl} alt="Aperçu avatar" className="h-full w-full object-cover" />
+                        ) : (
+                          <span>{getInitials(profileForm.firstName, profileForm.lastName)}</span>
+                        )}
+                      </div>
+                      <div className="flex flex-1 flex-col gap-2 text-xs text-slate-500">
+                        <div className="flex flex-wrap gap-2">
+                          <Button type="button" variant="outline" size="sm" onClick={handleAvatarSelect}>
+                            Choisir une image
+                          </Button>
+                          {profileForm.avatarUrl && (
+                            <Button type="button" variant="ghost" size="sm" onClick={handleAvatarClear}>
+                              Retirer
+                            </Button>
+                          )}
+                        </div>
+                        <input
+                          ref={avatarFileInputRef}
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={handleAvatarUpload}
+                        />
+                        <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400">
+                          <span>Lien externe (optionnel)</span>
+                          <input
+                            name="avatarUrl"
+                            type="text"
+                            value={profileForm.avatarUrl}
+                            onChange={handleProfileChange}
+                            className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                            placeholder="https://…"
+                          />
+                        </label>
+                        <p className="text-[10px] text-slate-400 dark:text-slate-500">
+                          Les fichiers importés sont convertis en data URL et conservés pour vos prochaines connexions.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-2 flex flex-wrap items-center justify-end gap-3 border-t border-slate-200 pt-3 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={closeProfileModal}
+                    className="rounded-lg border border-slate-200 bg-white px-4 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    type="submit"
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white shadow-lg shadow-blue-600/25 transition hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 dark:bg-blue-500 dark:hover:bg-blue-600"
+                  >
+                    Enregistrer
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 };

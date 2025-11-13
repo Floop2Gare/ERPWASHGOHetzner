@@ -1,2075 +1,1969 @@
-import {
-  ChangeEvent,
-  FormEvent,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { useNavigate } from 'react-router-dom';
+import { Filter, Download, Mail, Phone, Edit2, Trash2, FileText, X, Search, Users, Flame, TrendingUp, Printer, Send, Plus } from 'lucide-react';
 import clsx from 'clsx';
-import { Card } from '../components/Card';
-import { Button } from '../components/Button';
-import { Table } from '../components/Table';
-import { Tag } from '../components/Tag';
-import { RowActionButton } from '../components/RowActionButton';
-import { IconArchive, IconDocument, IconEdit, IconPaperPlane, IconPlus, IconReceipt } from '../components/icons';
-import {
-  useAppData,
-  Client,
-  ClientContact,
-  ClientContactRole,
-  ClientType,
-  Engagement,
-  Note,
-} from '../store/useAppData';
+
+import { useAppData, type Client, type ClientContact } from '../store/useAppData';
 import { formatCurrency, formatDate } from '../lib/format';
 import { downloadCsv } from '../lib/csv';
-import { useIsMobile } from '../hooks/useIsMobile';
 import { BRAND_NAME } from '../lib/branding';
 import { openEmailComposer } from '../lib/email';
 
-const roleLabels: Record<ClientContactRole, string> = {
-  achat: 'Achat',
-  facturation: 'Facturation',
-  technique: 'Technique',
+type TableRowType = 'prospect' | 'client_actif' | 'client_inactif';
+
+type TableRowStatus = 'Actif' | 'Prospect' | 'Inactif';
+
+type FilterState = {
+  status: '' | TableRowStatus;
+  segment: '' | 'Entreprise' | 'Particulier';
+  city: string;
+  tag: string;
 };
 
-const contactRoleOptions: ClientContactRole[] = ['achat', 'facturation', 'technique'];
+type TableRow = {
+  id: string;
+  client: Client;
+  contact: ClientContact | null;
+  contactId: string | null;
+  type: TableRowType;
+  status: TableRowStatus;
+  organization: string;
+  contactName: string;
+  email: string;
+  phone: string;
+  city: string;
+  nextActionDate: string | null;
+  nextActionNote: string;
+  revenue: number;
+  segment: 'Entreprise' | 'Particulier';
+  tags: string[];
+  avatarLabel: string;
+  contactCount: number;
+};
 
-const emptyClientForm = {
-  type: 'company' as ClientType,
+const typeConfig: Record<TableRowType, { label: string; color: string }> = {
+  prospect: { label: 'Prospect', color: 'bg-blue-200 text-blue-800' },
+  client_actif: { label: 'Client actif', color: 'bg-emerald-200 text-emerald-800' },
+  client_inactif: { label: 'Client inactif', color: 'bg-slate-300 text-slate-700' },
+};
+
+const statusConfig: Record<TableRowStatus, { label: string; color: string }> = {
+  Actif: {
+    label: 'Actif',
+    color: 'bg-emerald-200 text-emerald-800 border border-emerald-300 shadow-[0_1px_0_rgba(16,185,129,0.35)]',
+  },
+  Prospect: {
+    label: 'Prospect',
+    color: 'bg-blue-200 text-blue-800 border border-blue-300 shadow-[0_1px_0_rgba(59,130,246,0.35)]',
+  },
+  Inactif: {
+    label: 'Inactif',
+    color: 'bg-slate-200 text-slate-700 border border-slate-300 shadow-[0_1px_0_rgba(148,163,184,0.35)]',
+  },
+};
+
+const segmentConfig: Record<'Entreprise' | 'Particulier', { label: string; color: string }> = {
+  Entreprise: { label: 'Professionnel', color: 'bg-purple-200 text-purple-800' },
+  Particulier: { label: 'Particulier', color: 'bg-blue-200 text-blue-800' },
+};
+
+const getInitials = (value: string) => {
+  const parts = value
+    .split(' ')
+    .map((chunk) => chunk.trim())
+    .filter(Boolean);
+  if (!parts.length) {
+    return '??';
+  }
+  if (parts.length === 1) {
+    return parts[0].slice(0, 2).toUpperCase();
+  }
+  return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase();
+};
+
+const buildRow = (
+  client: Client,
+  revenue: number
+): TableRow => {
+  const activeContacts = client.contacts.filter((contact) => contact.active);
+  const primaryContact =
+    activeContacts.find((contact) => contact.isBillingDefault) ?? activeContacts[0] ?? null;
+  const hasActiveContacts = activeContacts.length > 0;
+  const type: TableRowType =
+    hasActiveContacts && client.status === 'Actif'
+      ? 'client_actif'
+      : hasActiveContacts && client.status === 'Prospect'
+      ? 'prospect'
+      : 'client_inactif';
+  const status: TableRowStatus =
+    type === 'client_inactif' ? 'Inactif' : client.status === 'Prospect' ? 'Prospect' : 'Actif';
+
+  const email = primaryContact?.email || client.email || '';
+  const phone = primaryContact?.mobile || client.phone || '';
+  const organization = client.name;
+  const contactName = primaryContact
+    ? `${primaryContact.firstName} ${primaryContact.lastName}`.trim()
+    : '';
+
+  return {
+    id: client.id,
+    client,
+    contact: primaryContact,
+    contactId: primaryContact?.id ?? null,
+    type,
+    status,
+    organization,
+    contactName,
+    email,
+    phone,
+    city: client.city ?? '',
+    nextActionDate: client.lastService || null,
+    nextActionNote: client.lastService
+      ? 'Dernière prestation enregistrée'
+      : 'Aucune prestation récente',
+    revenue,
+    segment: client.type === 'company' ? 'Entreprise' : 'Particulier',
+    tags: client.tags,
+    avatarLabel: primaryContact
+      ? getInitials(`${primaryContact.firstName} ${primaryContact.lastName}`)
+      : getInitials(client.name),
+    contactCount: activeContacts.length,
+  };
+};
+
+const formatPhoneForDial = (phone: string) => phone.replace(/\s+/g, '');
+
+type CreateClientFormState = {
+  type: Client['type'];
+  companyName: string;
+  contactFirstName: string;
+  contactLastName: string;
+  email: string;
+  phone: string;
+  address: string;
+  city: string;
+  siret: string;
+  tags: string;
+  status: Client['status'];
+};
+
+const CREATE_CLIENT_DEFAULTS: CreateClientFormState = {
+  type: 'company',
   companyName: '',
-  firstName: '',
-  lastName: '',
-  siret: '',
+  contactFirstName: '',
+  contactLastName: '',
   email: '',
   phone: '',
   address: '',
   city: '',
-  status: 'Actif' as Client['status'],
+  siret: '',
   tags: '',
+  status: 'Prospect',
 };
 
-const emptyContactForm = {
-  firstName: '',
-  lastName: '',
-  email: '',
-  mobile: '',
-  roles: ['facturation'] as ClientContactRole[],
-  isBillingDefault: false,
-};
-
-const parseCsvLine = (line: string, separator: string) => {
-  const cells: string[] = [];
-  let current = '';
-  let insideQuotes = false;
-  for (let index = 0; index < line.length; index += 1) {
-    const char = line[index];
-    if (char === '"') {
-      if (insideQuotes && line[index + 1] === '"') {
-        current += '"';
-        index += 1;
-      } else {
-        insideQuotes = !insideQuotes;
-      }
-    } else if (char === separator && !insideQuotes) {
-      cells.push(current.trim());
-      current = '';
-    } else {
-      current += char;
-    }
-  }
-  cells.push(current.trim());
-  return cells.map((cell) => cell.replace(/^"|"$/g, ''));
-};
-
-type ImportMappingKey =
-  | 'organisationName'
-  | 'organisationSiret'
-  | 'organisationEmail'
-  | 'organisationPhone'
-  | 'organisationAddress'
-  | 'organisationCity'
-  | 'organisationStatus'
-  | 'contactFirstName'
-  | 'contactLastName'
-  | 'contactEmail'
-  | 'contactMobile'
-  | 'contactRoles'
-  | 'contactBilling';
-
-type ImportConfig = {
-  fileName: string;
-  separator: string;
-  headers: string[];
-  rows: string[][];
-  mapping: Record<ImportMappingKey, string | null>;
-};
-
-const requiredMappings: ImportMappingKey[] = [
-  'organisationName',
-  'organisationSiret',
-  'contactFirstName',
-  'contactLastName',
-  'contactEmail',
-  'contactMobile',
-  'contactRoles',
-];
-
-const mappingFields: { key: ImportMappingKey; label: string; required?: boolean }[] = [
-  { key: 'organisationName', label: 'Nom organisation', required: true },
-  { key: 'organisationSiret', label: 'SIRET', required: true },
-  { key: 'organisationEmail', label: 'Email organisation' },
-  { key: 'organisationPhone', label: 'Téléphone organisation' },
-  { key: 'organisationAddress', label: 'Adresse' },
-  { key: 'organisationCity', label: 'Ville' },
-  { key: 'organisationStatus', label: 'Statut' },
-  { key: 'contactFirstName', label: 'Prénom contact', required: true },
-  { key: 'contactLastName', label: 'Nom contact', required: true },
-  { key: 'contactEmail', label: 'Email contact', required: true },
-  { key: 'contactMobile', label: 'Mobile contact', required: true },
-  { key: 'contactRoles', label: 'Rôles contact', required: true },
-  { key: 'contactBilling', label: 'Contact facturation (Oui/Non)' },
-];
-
-const autoMatchHeader = (headers: string[], candidates: string[]) => {
-  const lowerHeaders = headers.map((header) => header.toLowerCase());
-  for (const candidate of candidates) {
-    const index = lowerHeaders.indexOf(candidate.toLowerCase());
-    if (index >= 0) {
-      return headers[index];
-    }
-  }
-  return null;
-};
-
-const toggleRole = (roles: ClientContactRole[], role: ClientContactRole) =>
-  roles.includes(role) ? roles.filter((item) => item !== role) : [...roles, role];
-
-type UndoSnapshot = {
-  client: Client;
-  engagements: Engagement[];
-  notes: Note[];
-};
 const ClientsPage = () => {
+  const navigate = useNavigate();
   const {
     clients,
-    engagements,
-    notes,
-    addClient,
-    updateClient,
-    addClientContact,
-    updateClientContact,
-    archiveClientContact,
-    restoreClientContact,
-    setClientBillingContact,
     getClientRevenue,
     removeClient,
-    restoreClient,
+    hasPermission,
     setPendingEngagementSeed,
     activeCompanyId,
-    hasPermission,
+    addClient,
+    updateClient,
   } = useAppData();
-  const [searchTerm, setSearchTerm] = useState('');
-  const [contactQuery, setContactQuery] = useState('');
-  const [roleFilter, setRoleFilter] = useState<'all' | ClientContactRole>('all');
-  const [billingFilter, setBillingFilter] = useState<'all' | 'with' | 'without'>('all');
-  const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
-  const [selectedClientIds, setSelectedClientIds] = useState<string[]>([]);
+
+  const [showFilters, setShowFilters] = useState(false);
+  const [filters, setFilters] = useState<FilterState>({
+    status: '',
+    segment: '',
+    city: '',
+    tag: '',
+  });
+  const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [feedback, setFeedback] = useState<string | null>(null);
-  const [creationOpen, setCreationOpen] = useState(false);
-  const [clientForm, setClientForm] = useState(emptyClientForm);
-  const [creationContactForm, setCreationContactForm] = useState(emptyContactForm);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isEditingClient, setIsEditingClient] = useState(false);
-  const [editClientForm, setEditClientForm] = useState(emptyClientForm);
-  const [isContactFormOpen, setIsContactFormOpen] = useState(false);
-  const [contactForm, setContactForm] = useState(emptyContactForm);
-  const [editingContactId, setEditingContactId] = useState<string | null>(null);
-  const [importConfig, setImportConfig] = useState<ImportConfig | null>(null);
-  const [importFeedback, setImportFeedback] = useState<string | null>(null);
-  const listSectionRef = useRef<HTMLDivElement | null>(null);
-  const creationSectionRef = useRef<HTMLDivElement | null>(null);
-  const detailSectionRef = useRef<HTMLDivElement | null>(null);
-  const detailFocusRef = useRef<HTMLDivElement | null>(null);
-  const undoPayloadRef = useRef<UndoSnapshot | null>(null);
-  const undoTimeoutRef = useRef<number | null>(null);
-  const [undoAvailable, setUndoAvailable] = useState(false);
-  const navigate = useNavigate();
-  const location = useLocation();
-  const isMobile = useIsMobile();
+  const [showCreateClientModal, setShowCreateClientModal] = useState(false);
+  const [createClientForm, setCreateClientForm] = useState<CreateClientFormState>(() => ({
+    ...CREATE_CLIENT_DEFAULTS,
+  }));
+  const [createClientError, setCreateClientError] = useState<string | null>(null);
+  const [showEditClientModal, setShowEditClientModal] = useState(false);
+  const [editingClientId, setEditingClientId] = useState<string | null>(null);
+  const [editClientForm, setEditClientForm] = useState<CreateClientFormState>(() => ({
+    ...CREATE_CLIENT_DEFAULTS,
+  }));
+  const [editClientError, setEditClientError] = useState<string | null>(null);
 
-  const clearUndo = () => {
-    if (undoTimeoutRef.current) {
-      window.clearTimeout(undoTimeoutRef.current);
-      undoTimeoutRef.current = null;
-    }
-    undoPayloadRef.current = null;
-    setUndoAvailable(false);
-  };
-
-  const notify = (message: string) => {
-    clearUndo();
-    setFeedback(message);
-  };
-
-  const scrollToList = useCallback(() => {
-    requestAnimationFrame(() => {
-      listSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
-  }, []);
-
-  const sortedClients = useMemo(
-    () =>
-      [...clients].sort((a, b) =>
-        a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' })
-      ),
-    [clients]
-  );
-
-  const revenueByClient = useMemo(() => {
-    const entries = new Map<string, number>();
-    sortedClients.forEach((client) => {
-      entries.set(client.id, getClientRevenue(client.id));
-    });
-    return entries;
-  }, [sortedClients, getClientRevenue]);
+  const tableData = useMemo<TableRow[]>(() => {
+    return clients
+      .map((client) => buildRow(client, getClientRevenue(client.id) ?? 0))
+      .sort((a, b) => a.organization.localeCompare(b.organization, 'fr', { sensitivity: 'base' }));
+  }, [clients, getClientRevenue]);
 
   useEffect(() => {
-    setSelectedClientIds((current) =>
-      current.filter((id) => sortedClients.some((client) => client.id === id))
-    );
-  }, [sortedClients]);
-
-  const contactUsage = useMemo(() => {
-    const usage = new Map<string, number>();
-    engagements.forEach((engagement) => {
-      engagement.contactIds.forEach((contactId) => {
-        usage.set(contactId, (usage.get(contactId) ?? 0) + 1);
+    setSelectedRows((current) => {
+      const next = new Set<string>();
+      tableData.forEach((row) => {
+        if (current.has(row.id)) {
+          next.add(row.id);
+        }
       });
+      return next;
     });
-    return usage;
-  }, [engagements]);
-
-  const filteredClients = useMemo(() => {
-    return sortedClients.filter((client) => {
-      const searchMatch =
-        !searchTerm.trim() ||
-        client.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        client.siret.toLowerCase().includes(searchTerm.toLowerCase());
-      if (!searchMatch) {
-        return false;
-      }
-      const activeContacts = client.contacts.filter((contact) => contact.active);
-      const contactMatch = contactQuery.trim()
-        ? activeContacts.some((contact) => {
-            const haystack = `${contact.firstName} ${contact.lastName} ${contact.email} ${contact.mobile}`.toLowerCase();
-            return haystack.includes(contactQuery.toLowerCase());
-          })
-        : true;
-      if (!contactMatch) {
-        return false;
-      }
-      const roleMatches =
-        roleFilter === 'all'
-          ? true
-          : activeContacts.some((contact) => contact.roles.includes(roleFilter));
-      if (!roleMatches) {
-        return false;
-      }
-      if (billingFilter === 'with') {
-        return activeContacts.some((contact) => contact.isBillingDefault);
-      }
-      if (billingFilter === 'without') {
-        return activeContacts.every((contact) => !contact.isBillingDefault);
-      }
-      return true;
-    });
-  }, [sortedClients, searchTerm, contactQuery, roleFilter, billingFilter]);
-
-  const allClientsSelected =
-    filteredClients.length > 0 &&
-    filteredClients.every((client) => selectedClientIds.includes(client.id));
-
-  const toggleClientSelection = (clientId: string) => {
-    setSelectedClientIds((current) =>
-      current.includes(clientId)
-        ? current.filter((id) => id !== clientId)
-        : [...current, clientId]
-    );
-  };
-
-  const toggleSelectAllClients = () => {
-    if (allClientsSelected) {
-      setSelectedClientIds((current) =>
-        current.filter((id) => !filteredClients.some((client) => client.id === id))
-      );
-    } else {
-      setSelectedClientIds((current) => [
-        ...new Set([...current, ...filteredClients.map((client) => client.id)]),
-      ]);
-    }
-  };
-
-  const clearSelectedClients = () => setSelectedClientIds([]);
-
-  const handleBulkSendClients = () => {
-    const targets = clients.filter((client) => selectedClientIds.includes(client.id));
-    if (!targets.length) {
-      return;
-    }
-    targets.forEach((client) => handleMailto(client));
-    setFeedback(`${targets.length} client(s) prêt(s) pour l’envoi d’un e-mail.`);
-  };
-
-  const handleBulkArchiveClients = () => {
-    if (!selectedClientIds.length) {
-      return;
-    }
-    const targets = clients.filter((client) => selectedClientIds.includes(client.id));
-    if (!targets.length) {
-      return;
-    }
-    clearUndo();
-    targets.forEach((client) => {
-      removeClient(client.id);
-      if (selectedClientId === client.id) {
-        setSelectedClientId(null);
-    setIsEditingClient(false);
-        setIsContactFormOpen(false);
-      }
-    });
-    setSelectedClientIds([]);
-    setFeedback(`${targets.length} client(s) archivés.`);
-  };
-
-  const selectedClient = useMemo(
-    () => clients.find((client) => client.id === selectedClientId) ?? null,
-    [clients, selectedClientId]
-  );
-
-  const billingContact = selectedClient
-    ?.contacts.find((contact) => contact.active && contact.isBillingDefault) ?? null;
-
-  const contactCount = useMemo(() => {
-    return clients.reduce((acc, client) => acc + client.contacts.filter((contact) => contact.active).length, 0);
-  }, [clients]);
-
-  const clientCount = clients.length;
-  const globalRevenue = useMemo(
-    () => clients.reduce((acc, client) => acc + (revenueByClient.get(client.id) ?? 0), 0),
-    [clients, revenueByClient]
-  );
+  }, [tableData]);
 
   useEffect(() => {
-    if (!creationOpen || !creationSectionRef.current) {
+    if (!feedback) {
       return;
-    }
-    creationSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    window.setTimeout(() => {
-      const target = creationSectionRef.current?.querySelector<HTMLElement>('input, select');
-      target?.focus({ preventScroll: true });
-    }, 180);
-  }, [creationOpen]);
-
-  useEffect(() => {
-    if (!selectedClient || !detailSectionRef.current) {
-      return;
-    }
-    setEditClientForm({
-      type: selectedClient.type,
-      companyName: selectedClient.companyName ?? '',
-      firstName: selectedClient.firstName ?? '',
-      lastName: selectedClient.lastName ?? '',
-      siret: selectedClient.type === 'company' ? selectedClient.siret : '',
-      email: selectedClient.email,
-      phone: selectedClient.phone,
-      address: selectedClient.address,
-      city: selectedClient.city,
-      status: selectedClient.status,
-      tags: selectedClient.tags.join(', '),
-    });
-    detailSectionRef.current.scrollIntoView({ behavior: 'smooth', block: isMobile ? 'start' : 'center' });
-    window.setTimeout(() => {
-      detailFocusRef.current?.focus({ preventScroll: true });
-    }, 180);
-  }, [selectedClient, isMobile]);
-
-  useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    const clientId = params.get('clientId');
-    if (!clientId) {
-      return;
-    }
-    const nextParams = new URLSearchParams(location.search);
-    nextParams.delete('clientId');
-    navigate({ pathname: location.pathname, search: nextParams.toString() ? `?${nextParams}` : '' }, { replace: true });
-    if (clients.some((client) => client.id === clientId)) {
-      setSelectedClientId(clientId);
-      setCreationOpen(false);
-    }
-  }, [clients, location.pathname, location.search, navigate]);
-
-  useEffect(() => {
-    if (!feedback || undoAvailable) {
-      return undefined;
     }
     const timeout = window.setTimeout(() => setFeedback(null), 4000);
     return () => window.clearTimeout(timeout);
-  }, [feedback, undoAvailable]);
+  }, [feedback]);
 
-  useEffect(() => {
-    if (importFeedback) {
-      const timeout = window.setTimeout(() => setImportFeedback(null), 4000);
-      return () => window.clearTimeout(timeout);
-    }
-    return undefined;
-  }, [importFeedback]);
+  const uniqueSegments = useMemo(() => {
+    const segments = new Set<'Entreprise' | 'Particulier'>();
+    tableData.forEach((row) => segments.add(row.segment));
+    return Array.from(segments).sort();
+  }, [tableData]);
 
-  const closeDetail = () => {
-    setSelectedClientId(null);
-    setIsEditingClient(false);
-    setIsContactFormOpen(false);
-    setEditingContactId(null);
-  };
-
-  const handleSelectClientType = (type: ClientType) => {
-    setClientForm((form) => {
-      if (form.type === type) {
-        return form;
+  const uniqueCities = useMemo(() => {
+    const cities = new Set<string>();
+    tableData.forEach((row) => {
+      if (row.city) {
+        cities.add(row.city);
       }
-      const next = {
-        ...form,
-        type,
-        companyName: type === 'company' ? '' : form.companyName,
-        siret: type === 'company' ? '' : form.siret,
-        firstName: type === 'individual' ? form.firstName : '',
-        lastName: type === 'individual' ? form.lastName : '',
-      };
-      return type === 'company'
-        ? { ...next, firstName: '', lastName: '' }
-        : { ...next, companyName: '', siret: '' };
     });
-  };
+    return Array.from(cities).sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' }));
+  }, [tableData]);
 
-  const handleEditClientType = (type: ClientType) => {
-    setEditClientForm((form) => {
-      if (form.type === type) {
-        return form;
+  const uniqueTags = useMemo(() => {
+    const tags = new Set<string>();
+    tableData.forEach((row) => row.tags.forEach((tag) => tags.add(tag)));
+    return Array.from(tags).sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' }));
+  }, [tableData]);
+
+  const filteredData = useMemo(() => {
+    return tableData.filter((row) => {
+      if (filters.status && row.status !== filters.status) {
+        return false;
       }
-      return type === 'company'
-        ? { ...form, type, companyName: '', siret: '', firstName: '', lastName: '' }
-        : { ...form, type, companyName: '', siret: '', firstName: '', lastName: '' };
+      if (filters.segment && row.segment !== filters.segment) {
+        return false;
+      }
+      if (filters.city && row.city !== filters.city) {
+        return false;
+      }
+      if (filters.tag && !row.tags.includes(filters.tag)) {
+        return false;
+      }
+      return true;
     });
-  };
+  }, [filters, tableData]);
 
-  useEffect(() => {
-    if (clientForm.type !== 'individual') {
-      return;
-    }
-    setCreationContactForm((form) => ({
-      ...form,
-      firstName: form.firstName || clientForm.firstName,
-      lastName: form.lastName || clientForm.lastName,
-    }));
-  }, [clientForm.type, clientForm.firstName, clientForm.lastName]);
-  const handleCreateClient = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (clientForm.type === 'company') {
-      if (!clientForm.companyName.trim() || !clientForm.siret.trim()) {
-        notify('Renseignez au minimum le nom de la société et le SIRET.');
-        return;
-      }
-    } else {
-      if (!clientForm.firstName.trim() || !clientForm.lastName.trim()) {
-        notify('Indiquez au minimum le prénom et le nom du particulier.');
-        return;
-      }
-    }
-    if (
-      !creationContactForm.firstName.trim() ||
-      !creationContactForm.lastName.trim() ||
-      !creationContactForm.email.trim() ||
-      !creationContactForm.mobile.trim()
-    ) {
-      notify('Ajoutez un contact principal complet.');
-      return;
-    }
-    setIsSubmitting(true);
-    try {
-      const displayName =
-        clientForm.type === 'company'
-          ? clientForm.companyName.trim()
-          : `${clientForm.firstName.trim()} ${clientForm.lastName.trim()}`.trim();
-      const created = addClient({
-        type: clientForm.type,
-        name: displayName,
-        companyName: clientForm.type === 'company' ? clientForm.companyName.trim() : '',
-        firstName: clientForm.type === 'individual' ? clientForm.firstName.trim() : '',
-        lastName: clientForm.type === 'individual' ? clientForm.lastName.trim() : '',
-        siret: clientForm.type === 'company' ? clientForm.siret.trim() : '',
-        email: clientForm.email.trim(),
-        phone: clientForm.phone.trim(),
-        address: clientForm.address.trim(),
-        city: clientForm.city.trim(),
-        status: clientForm.status,
-        tags: clientForm.tags
-          .split(',')
-          .map((tag) => tag.trim())
-          .filter(Boolean),
-      });
-      const contact = addClientContact(created.id, {
-        firstName: creationContactForm.firstName.trim(),
-        lastName: creationContactForm.lastName.trim(),
-        email: creationContactForm.email.trim(),
-        mobile: creationContactForm.mobile.trim(),
-        roles: creationContactForm.roles,
-        isBillingDefault:
-          creationContactForm.isBillingDefault || creationContactForm.roles.includes('facturation'),
-      });
-      if (contact?.isBillingDefault) {
-        setClientBillingContact(created.id, contact.id);
-      }
-      notify(`Client « ${created.name} » ajouté.`);
-      setCreationOpen(false);
-      setClientForm(emptyClientForm);
-      setCreationContactForm(emptyContactForm);
-      setSelectedClientId(null);
-      setSelectedClientIds([]);
-      scrollToList();
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+  const selectedData = useMemo(() => {
+    return filteredData.filter((row) => selectedRows.has(row.id));
+  }, [filteredData, selectedRows]);
 
-  const handleUpdateClient = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!selectedClient) {
-      return;
-    }
-    updateClient(selectedClient.id, {
-      type: editClientForm.type,
-      name:
-        editClientForm.type === 'company'
-          ? editClientForm.companyName.trim()
-          : `${editClientForm.firstName.trim()} ${editClientForm.lastName.trim()}`.trim(),
-      companyName: editClientForm.type === 'company' ? editClientForm.companyName.trim() : '',
-      firstName: editClientForm.type === 'individual' ? editClientForm.firstName.trim() : '',
-      lastName: editClientForm.type === 'individual' ? editClientForm.lastName.trim() : '',
-      siret: editClientForm.type === 'company' ? editClientForm.siret.trim() : '',
-      email: editClientForm.email.trim(),
-      phone: editClientForm.phone.trim(),
-      address: editClientForm.address.trim(),
-      city: editClientForm.city.trim(),
-      status: editClientForm.status,
-      tags: editClientForm.tags
-        .split(',')
-        .map((tag) => tag.trim())
-        .filter(Boolean),
-    });
-    notify('Client mis à jour.');
-    setIsEditingClient(false);
-  };
+  const activeFiltersCount = useMemo(
+    () => Object.values(filters).filter(Boolean).length,
+    [filters]
+  );
 
-  const openContactForm = (contact?: ClientContact) => {
-    if (contact) {
-      setContactForm({
-        firstName: contact.firstName,
-        lastName: contact.lastName,
-        email: contact.email,
-        mobile: contact.mobile,
-        roles: [...contact.roles],
-        isBillingDefault: contact.isBillingDefault,
-      });
-      setEditingContactId(contact.id);
-    } else {
-      setContactForm(emptyContactForm);
-      setEditingContactId(null);
-    }
-    setIsContactFormOpen(true);
-    window.setTimeout(() => {
-      const focusable = detailSectionRef.current?.querySelector<HTMLInputElement>('input[name="contact-first-name"]');
-      focusable?.focus({ preventScroll: true });
-    }, 120);
-  };
-
-  const handleEditShortcut = (client: Client) => {
-    setSelectedClientId(client.id);
-    setCreationOpen(false);
-    window.setTimeout(() => {
-      setIsEditingClient(true);
-    }, 80);
-  };
-
-  const handleAddContactShortcut = (client: Client) => {
-    setSelectedClientId(client.id);
-    setCreationOpen(false);
-    window.setTimeout(() => {
-      openContactForm();
-    }, 80);
-  };
-
-  const closeContactForm = () => {
-    setIsContactFormOpen(false);
-    setEditingContactId(null);
-    setContactForm(emptyContactForm);
-  };
-
-  const handleContactSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!selectedClient) {
-      return;
-    }
-    if (
-      !contactForm.firstName.trim() ||
-      !contactForm.lastName.trim() ||
-      !contactForm.email.trim() ||
-      !contactForm.mobile.trim()
-    ) {
-      notify('Complétez les informations du contact.');
-      return;
-    }
-    if (!contactForm.roles.length) {
-      notify('Sélectionnez au moins un rôle.');
-      return;
-    }
-    if (editingContactId) {
-      updateClientContact(selectedClient.id, editingContactId, {
-        firstName: contactForm.firstName,
-        lastName: contactForm.lastName,
-        email: contactForm.email,
-        mobile: contactForm.mobile,
-        roles: contactForm.roles,
-        isBillingDefault: contactForm.isBillingDefault,
-        active: true,
-      });
-      if (contactForm.isBillingDefault) {
-        setClientBillingContact(selectedClient.id, editingContactId);
-      }
-      notify('Contact mis à jour.');
-    } else {
-      const created = addClientContact(selectedClient.id, {
-        firstName: contactForm.firstName,
-        lastName: contactForm.lastName,
-        email: contactForm.email,
-        mobile: contactForm.mobile,
-        roles: contactForm.roles,
-        isBillingDefault:
-          contactForm.isBillingDefault || contactForm.roles.includes('facturation'),
-      });
-      if (created?.isBillingDefault) {
-        setClientBillingContact(selectedClient.id, created.id);
-      }
-      notify('Contact ajouté.');
-    }
-    closeContactForm();
-  };
-
-  const handleArchiveContact = (clientId: string, contact: ClientContact) => {
-    archiveClientContact(clientId, contact.id);
-    notify(`Contact « ${contact.firstName} ${contact.lastName} » archivé.`);
-  };
-
-  const handleRestoreContact = (clientId: string, contact: ClientContact) => {
-    restoreClientContact(clientId, contact.id);
-    notify(`Contact « ${contact.firstName} ${contact.lastName} » réactivé.`);
-  };
-
-  const handleSetBillingContact = (clientId: string, contactId: string) => {
-    setClientBillingContact(clientId, contactId);
-    notify('Contact de facturation mis à jour.');
-  };
-
-  const handleExport = () => {
-    if (!filteredClients.length) {
-      setFeedback('Aucun client à exporter.');
-      return;
-    }
-
-    const header = [
-      'Organisation',
-      'Type',
-      'Nom entreprise',
-      'Prénom',
-      'Nom',
-      'SIRET',
-      'Email organisation',
-      'Téléphone organisation',
-      'Adresse',
-      'Ville',
-      'Statut',
-      'Tags',
-      'Contacts actifs',
-      'Détails contacts',
-      'Contact facturation',
-      'Dernière prestation',
-      'Chiffre d’affaires HT',
-    ];
-
-    const rows = filteredClients.map((client) => {
-      const activeContacts = client.contacts.filter((contact) => contact.active);
-      const billing = activeContacts.find((contact) => contact.isBillingDefault);
-      const revenue = revenueByClient.get(client.id) ?? 0;
-      const contactSummary = activeContacts
-        .map((contact) => {
-          const name = `${contact.firstName} ${contact.lastName}`.trim();
-          const coordinates = [contact.email, contact.mobile].filter(Boolean).join(' / ');
-          const roles = contact.roles.length ? `Rôles : ${contact.roles.join(', ')}` : '';
-          const billingLabel = contact.isBillingDefault ? 'Contact facturation' : '';
-          return [name || 'Contact', coordinates, roles, billingLabel].filter(Boolean).join(' – ');
-        })
-        .join(' | ');
-      const billingLabel = billing
-        ? [
-            `${billing.firstName} ${billing.lastName}`.trim(),
-            billing.email ? `<${billing.email}>` : null,
-            billing.mobile ? `(${billing.mobile})` : null,
-          ]
-            .filter(Boolean)
-            .join(' ')
-        : '';
-      return [
-        client.name,
-        client.type === 'company' ? 'Entreprise' : 'Particulier',
-        client.companyName ?? '',
-        client.firstName ?? '',
-        client.lastName ?? '',
-        client.siret,
-        client.email,
-        client.phone,
-        client.address,
-        client.city,
-        client.status,
-        client.tags.join(', '),
-        activeContacts.length,
-        contactSummary,
-        billingLabel,
-        client.lastService ? formatDate(client.lastService) : '',
-        formatCurrency(revenue),
-      ];
-    });
-
-    downloadCsv({ fileName: 'clients.csv', header, rows });
-    setFeedback(`${rows.length} client(s) exporté(s).`);
-  };
-  const openImportConfigurator = async (file: File) => {
-    const text = await file.text();
-    const rawLines = text
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0);
-    if (rawLines.length <= 1) {
-      setImportFeedback('Le fichier ne contient pas de données exploitables.');
-      return;
-    }
-    const headerLine = rawLines[0];
-    const separator = headerLine.includes(';') ? ';' : ',';
-    const headers = parseCsvLine(headerLine, separator);
-    const rows = rawLines.slice(1).map((line) => parseCsvLine(line, separator));
-    const mapping: Record<ImportMappingKey, string | null> = {
-      organisationName: autoMatchHeader(headers, ['organisation', 'nom organisation', 'client', 'nom']),
-      organisationSiret: autoMatchHeader(headers, ['siret', 'n° siret']),
-      organisationEmail: autoMatchHeader(headers, ['email organisation', 'organisation email', 'email']),
-      organisationPhone: autoMatchHeader(headers, ['telephone organisation', 'téléphone organisation', 'telephone']),
-      organisationAddress: autoMatchHeader(headers, ['adresse organisation', 'adresse']),
-      organisationCity: autoMatchHeader(headers, ['ville organisation', 'ville']),
-      organisationStatus: autoMatchHeader(headers, ['statut organisation', 'statut']),
-      contactFirstName: autoMatchHeader(headers, ['contact prenom', 'prenom', 'first name']),
-      contactLastName: autoMatchHeader(headers, ['contact nom', 'nom', 'last name']),
-      contactEmail: autoMatchHeader(headers, ['contact email', 'email contact']),
-      contactMobile: autoMatchHeader(headers, ['contact mobile', 'mobile', 'telephone contact']),
-      contactRoles: autoMatchHeader(headers, ['roles', 'contact roles', 'contact role']),
-      contactBilling: autoMatchHeader(headers, ['contact facturation', 'billing default']),
-    };
-    setImportConfig({ fileName: file.name, separator, headers, rows, mapping });
-    setImportFeedback(null);
-  };
-
-  const applyImport = () => {
-    if (!importConfig) {
-      return;
-    }
-    const missingRequired = requiredMappings.filter((key) => !importConfig.mapping[key]);
-    if (missingRequired.length) {
-      setImportFeedback('Mappez toutes les colonnes obligatoires.');
-      return;
-    }
-    let createdOrganisations = 0;
-    let createdContacts = 0;
-    let updatedContacts = 0;
-    let ignored = 0;
-
-    importConfig.rows.forEach((cells) => {
-      const getValue = (key: ImportMappingKey) => {
-        const header = importConfig.mapping[key];
-        if (!header) {
-          return '';
-        }
-        const index = importConfig.headers.indexOf(header);
-        return index >= 0 ? cells[index]?.trim() ?? '' : '';
-      };
-      const organisationName = getValue('organisationName');
-      const organisationSiret = getValue('organisationSiret');
-      const contactEmail = getValue('contactEmail');
-      const contactMobile = getValue('contactMobile');
-      const contactFirstName = getValue('contactFirstName');
-      const contactLastName = getValue('contactLastName');
-      const contactRolesInput = getValue('contactRoles');
-      if (
-        !organisationName ||
-        !organisationSiret ||
-        !contactEmail ||
-        !contactMobile ||
-        !contactFirstName ||
-        !contactLastName ||
-        !contactRolesInput
-      ) {
-        ignored += 1;
-        return;
-      }
-      const roles = contactRolesInput
-        .split(/[,;|]/)
-        .map((role) => role.trim().toLowerCase())
-        .filter((role): role is ClientContactRole => contactRoleOptions.includes(role as ClientContactRole));
-      if (!roles.length) {
-        ignored += 1;
-        return;
-      }
-      const billingFlag = getValue('contactBilling').toLowerCase();
-      const organisation = clients.find(
-        (client) =>
-          client.name.toLowerCase() === organisationName.toLowerCase() && client.siret.trim() === organisationSiret.trim()
-      );
-      const contactPayload = {
-        firstName: contactFirstName,
-        lastName: contactLastName,
-        email: contactEmail,
-        mobile: contactMobile,
-        roles,
-        isBillingDefault: billingFlag === 'oui' || billingFlag === 'yes' || roles.includes('facturation'),
-      };
-      if (organisation) {
-        const existing = organisation.contacts.find(
-          (contact) => contact.email.toLowerCase() === contactEmail.toLowerCase()
-        );
-        if (existing) {
-          updateClientContact(organisation.id, existing.id, {
-            ...contactPayload,
-            active: true,
-          });
-          if (contactPayload.isBillingDefault) {
-            setClientBillingContact(organisation.id, existing.id);
-          }
-          updatedContacts += 1;
-        } else {
-          const created = addClientContact(organisation.id, contactPayload);
-          if (created?.isBillingDefault) {
-            setClientBillingContact(organisation.id, created.id);
-          }
-          createdContacts += 1;
-        }
+  const toggleRowSelection = (id: string) => {
+    setSelectedRows((current) => {
+      const next = new Set(current);
+      if (next.has(id)) {
+        next.delete(id);
       } else {
-        const createdOrg = addClient({
-          type: 'company',
-          name: organisationName,
-          companyName: organisationName,
-          firstName: '',
-          lastName: '',
-          siret: organisationSiret,
-          email: getValue('organisationEmail'),
-          phone: getValue('organisationPhone'),
-          address: getValue('organisationAddress'),
-          city: getValue('organisationCity'),
-          status: (getValue('organisationStatus') as Client['status']) || 'Actif',
-          tags: [],
-        });
-        const createdContact = addClientContact(createdOrg.id, contactPayload);
-        if (createdContact?.isBillingDefault) {
-          setClientBillingContact(createdOrg.id, createdContact.id);
-        }
-        createdOrganisations += 1;
-        createdContacts += 1;
+        next.add(id);
       }
+      return next;
     });
-
-    setImportFeedback(
-      `Import terminé : ${createdOrganisations} clients créés, ${createdContacts} contacts créés, ${updatedContacts} mis à jour, ${ignored} ignorés.`
-    );
-    setImportConfig(null);
   };
 
-  const cancelImport = () => {
-    setImportConfig(null);
+  const clearSelection = () => setSelectedRows(new Set());
+
+  const allSelected = useMemo(
+    () => filteredData.length > 0 && filteredData.every((row) => selectedRows.has(row.id)),
+    [filteredData, selectedRows]
+  );
+
+  const handleToggleSelectAll = () => {
+    if (allSelected) {
+      // Désélectionner tous les éléments filtrés
+      setSelectedRows((current) => {
+        const next = new Set(current);
+        filteredData.forEach((row) => next.delete(row.id));
+        return next;
+      });
+    } else {
+      // Sélectionner tous les éléments filtrés
+      setSelectedRows((current) => {
+        const next = new Set(current);
+        filteredData.forEach((row) => next.add(row.id));
+        return next;
+      });
+    }
   };
 
-  const handleMailto = (client: Client) => {
-    const activeContacts = client.contacts.filter((item) => item.active);
-    const contact = activeContacts.find((item) => item.isBillingDefault) ?? activeContacts[0] ?? null;
-    const email = contact?.email || client.email;
-    if (!email) {
-      notify('Aucune adresse e-mail disponible pour ce client.');
+  const setFeedbackMessage = (message: string) => {
+    setFeedback(message);
+  };
+
+  const sendEmail = (row: TableRow, silent = false) => {
+    if (!row.email) {
+      if (!silent) {
+        setFeedbackMessage('Aucune adresse e-mail disponible pour ce client.');
+      }
+      return false;
+    }
+    const displayName = row.contactName || row.organization;
+    const subject = `${BRAND_NAME} – Contact client ${row.organization}`;
+    const body = `Bonjour ${displayName},\n\nJe reviens vers vous au sujet de [objet].\nN'hésitez pas à me répondre directement à ce mail.\n\nCordialement,\n${BRAND_NAME}`;
+    openEmailComposer({ to: [row.email], subject, body });
+    if (!silent) {
+      setFeedbackMessage('E-mail préparé dans Gmail.');
+    }
+    return true;
+  };
+
+  const handleCall = (row: TableRow) => {
+    if (!row.phone) {
+      setFeedbackMessage('Aucun numéro de téléphone disponible.');
       return;
     }
-    const displayName = contact ? `${contact.firstName} ${contact.lastName}` : client.name;
-    const subject = `${BRAND_NAME} – Contact client ${client.name}`;
-    const body = `Bonjour ${displayName},\n\nJe reviens vers vous au sujet de [objet].\nN'hésitez pas à me répondre directement à ce mail.\n\nCordialement,\n${BRAND_NAME}`;
-    openEmailComposer({ to: [email], subject, body });
-    setFeedback('E-mail préparé dans Gmail.');
+    window.open(`tel:${formatPhoneForDial(row.phone)}`, '_self');
   };
 
-  const handleEngagementShortcut = (client: Client, kind: 'service' | 'devis' | 'facture') => {
-    const activeContacts = client.contacts.filter((item) => item.active);
-    const preferred = activeContacts.find((item) => item.isBillingDefault) ?? activeContacts[0] ?? null;
+  const handleCreateDocument = (row: TableRow, kind: 'devis' | 'facture') => {
     setPendingEngagementSeed({
       kind,
-      clientId: client.id,
+      clientId: row.id,
       companyId: activeCompanyId ?? null,
-      contactIds: preferred ? [preferred.id] : [],
+      contactIds: row.contactId ? [row.contactId] : [],
     });
     navigate('/service');
   };
 
-  const handleDeleteClient = (client: Client) => {
-    clearUndo();
-    const snapshotClient: Client = {
-      ...client,
-      contacts: client.contacts.map((contact) => ({
-        ...contact,
-        roles: [...contact.roles],
-      })),
-    };
-    const relatedEngagements = engagements
-      .filter((engagement) => engagement.clientId === client.id)
-      .map((engagement) => ({
-        ...engagement,
-        optionIds: [...engagement.optionIds],
-        contactIds: [...engagement.contactIds],
-        sendHistory: engagement.sendHistory.map((record) => ({
-          ...record,
-          contactIds: [...record.contactIds],
-        })),
-      }));
-    const relatedNotes = notes
-      .filter((note) => note.clientId === client.id)
-      .map((note) => ({ ...note }));
-    undoPayloadRef.current = {
-      client: snapshotClient,
-      engagements: relatedEngagements,
-      notes: relatedNotes,
-    };
-    removeClient(client.id);
-    if (selectedClientId === client.id) {
-      setSelectedClientId(null);
-      setIsEditingClient(false);
-      setIsContactFormOpen(false);
-    }
-    setSelectedClientIds((current) => current.filter((id) => id !== client.id));
-    if (creationOpen) {
-      setCreationOpen(false);
-    }
-    setUndoAvailable(true);
-    setFeedback(`Organisation « ${client.name} » supprimée. Annuler ?`);
-    if (undoTimeoutRef.current) {
-      window.clearTimeout(undoTimeoutRef.current);
-    }
-    undoTimeoutRef.current = window.setTimeout(() => {
-      clearUndo();
-      setFeedback(null);
-    }, 5000);
-  };
-
-  const handleUndoDelete = () => {
-    if (!undoPayloadRef.current) {
+  const handleArchive = (row: TableRow) => {
+    if (!hasPermission('client.archive')) {
       return;
     }
-    const snapshot = undoPayloadRef.current;
-    clearUndo();
-    const clientClone: Client = {
-      ...snapshot.client,
-      contacts: snapshot.client.contacts.map((contact) => ({
-        ...contact,
-        roles: [...contact.roles],
-      })),
-    };
-    const engagementsClone = snapshot.engagements.map((engagement) => ({
-      ...engagement,
-      optionIds: [...engagement.optionIds],
-      contactIds: [...engagement.contactIds],
-      sendHistory: engagement.sendHistory.map((record) => ({
-        ...record,
-        contactIds: [...record.contactIds],
-      })),
-    }));
-    const notesClone = snapshot.notes.map((note) => ({ ...note }));
-    restoreClient({ client: clientClone, engagements: engagementsClone, notes: notesClone });
-    setSelectedClientId(snapshot.client.id);
-    notify(`Suppression annulée pour « ${snapshot.client.name} ».`);
+    const confirmed = window.confirm(
+      `Archiver le client « ${row.organization} » ?`
+    );
+    if (!confirmed) {
+      return;
+    }
+    removeClient(row.id);
+    setSelectedRows((current) => {
+      const next = new Set(current);
+      next.delete(row.id);
+      return next;
+    });
+    setFeedbackMessage(`Client « ${row.organization} » archivé.`);
   };
 
-  const columns = [
-    <div key="client-select" className="flex items-center gap-2">
-      <input
-        type="checkbox"
-        className="table-checkbox h-4 w-4 rounded focus:ring-primary/40"
-        aria-label="Sélectionner tous les clients"
-        checked={allClientsSelected}
-        onChange={toggleSelectAllClients}
-      />
-      <span>Organisation</span>
-    </div>,
-    'Coordonnées',
-    'Contacts actifs',
-    'Dernière prestation',
-    'Chiffre d’affaires',
-    'Actions',
-  ];
+  const handleBulkArchive = () => {
+    if (!hasPermission('client.archive') || !selectedData.length) {
+      return;
+    }
+    const confirmed = window.confirm(
+      `Archiver ${selectedData.length} client(s) sélectionné(s) ?`
+    );
+    if (!confirmed) {
+      return;
+    }
+    selectedData.forEach((row) => removeClient(row.id));
+    setSelectedRows(new Set());
+    setFeedbackMessage(`${selectedData.length} client(s) archivé(s).`);
+  };
 
-  const rows = filteredClients.map((client) => {
-    const activeContacts = client.contacts.filter((contact) => contact.active);
-    const billing = activeContacts.find((contact) => contact.isBillingDefault);
-    const fallbackContact = billing ?? activeContacts[0];
-    const contactEmail = fallbackContact?.email || client.email || '—';
-    const contactPhone = fallbackContact?.mobile || client.phone || '—';
-    const lastDate = client.lastService ? formatDate(client.lastService) : '—';
-    const revenue = revenueByClient.get(client.id) ?? 0;
-    const isSelected = selectedClientIds.includes(client.id);
+  const handleBulkEmail = () => {
+    if (!hasPermission('client.email')) {
+      return;
+    }
+    if (!selectedData.length) {
+      return;
+    }
+    let success = 0;
+    selectedData.forEach((row) => {
+      if (sendEmail(row, true)) {
+        success += 1;
+      }
+    });
+    if (success > 0) {
+      setFeedbackMessage(`${success} e-mail(s) préparé(s) dans Gmail.`);
+    } else {
+      setFeedbackMessage('Aucun e-mail à préparer pour la sélection.');
+    }
+  };
+
+  const handleBulkPrint = () => {
+    if (!selectedData.length) {
+      return;
+    }
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      setFeedbackMessage('Impossible d\'ouvrir la fenêtre d\'impression. Veuillez autoriser les fenêtres pop-up.');
+      return;
+    }
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Liste des clients - ${BRAND_NAME}</title>
+          <meta charset="UTF-8">
+          <style>
+            body {
+              font-family: Arial, sans-serif;
+              margin: 20px;
+              color: #333;
+            }
+            h1 {
+              color: #1e40af;
+              border-bottom: 2px solid #3b82f6;
+              padding-bottom: 10px;
+              margin-bottom: 20px;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 20px;
+            }
+            th, td {
+              border: 1px solid #ddd;
+              padding: 8px;
+              text-align: left;
+            }
+            th {
+              background-color: #3b82f6;
+              color: white;
+              font-weight: bold;
+            }
+            tr:nth-child(even) {
+              background-color: #f9fafb;
+            }
+            .header-info {
+              margin-bottom: 20px;
+              padding: 10px;
+              background-color: #eff6ff;
+              border-left: 4px solid #3b82f6;
+            }
+            @media print {
+              body {
+                margin: 0;
+              }
+              .no-print {
+                display: none;
+              }
+            }
+          </style>
+        </head>
+        <body>
+          <h1>Liste des clients - ${BRAND_NAME}</h1>
+          <div class="header-info">
+            <p><strong>Date d'impression :</strong> ${new Date().toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+            <p><strong>Nombre de clients :</strong> ${selectedData.length}</p>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Organisation</th>
+                <th>Contact</th>
+                <th>Statut</th>
+                <th>Email</th>
+                <th>Téléphone</th>
+                <th>Ville</th>
+                <th>Chiffre d'affaires</th>
+                <th>Dernière prestation</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${selectedData.map((row) => `
+                <tr>
+                  <td>${row.organization}</td>
+                  <td>${row.contactName || '—'}</td>
+                  <td>${row.status}</td>
+                  <td>${row.email || '—'}</td>
+                  <td>${row.phone || '—'}</td>
+                  <td>${row.city || '—'}</td>
+                  <td>${formatCurrency(row.revenue)}</td>
+                  <td>${row.nextActionDate ? formatDate(row.nextActionDate) : '—'}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </body>
+      </html>
+    `;
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => {
+      printWindow.print();
+      printWindow.close();
+    }, 250);
+    setFeedbackMessage(`${selectedData.length} client(s) prêt(s) à imprimer.`);
+  };
+
+  const handleBulkDelete = () => {
+    if (!hasPermission('client.archive') || !selectedData.length) {
+      return;
+    }
+    const confirmed = window.confirm(
+      `Êtes-vous sûr de vouloir supprimer définitivement ${selectedData.length} client(s) sélectionné(s) ? Cette action est irréversible.`
+    );
+    if (!confirmed) {
+      return;
+    }
+    selectedData.forEach((row) => removeClient(row.id));
+    setSelectedRows(new Set());
+    setFeedbackMessage(`${selectedData.length} client(s) supprimé(s).`);
+  };
+
+  const handleExport = () => {
+    if (!filteredData.length) {
+      setFeedbackMessage('Aucun client à exporter.');
+      return;
+    }
+    const header = [
+      'Organisation',
+      'Statut',
+      'Type',
+      'Contact principal',
+      'Email',
+      'Téléphone',
+      'Ville',
+      'Dernière prestation',
+      'Note',
+      'Chiffre d’affaires HT',
+      'Tags',
+    ];
+    const rows = filteredData.map((row) => [
+      row.organization,
+      row.status,
+      row.segment,
+      row.contactName || '—',
+      row.email || '—',
+      row.phone || '—',
+      row.city || '—',
+      row.nextActionDate ? formatDate(row.nextActionDate) : '—',
+      row.nextActionNote,
+      formatCurrency(row.revenue),
+      row.tags.join(', '),
+    ]);
+    downloadCsv({ fileName: 'clients.csv', header, rows });
+    setFeedbackMessage(`${rows.length} client(s) exporté(s).`);
+  };
+
+  const openEditClientModal = useCallback((clientId: string) => {
+    const client = clients.find((c) => c.id === clientId);
+    if (!client) {
+      return;
+    }
+
+    const primaryContact = client.contacts.find((contact) => contact.active && contact.isBillingDefault) 
+      ?? client.contacts.find((contact) => contact.active) 
+      ?? null;
+
+    setEditingClientId(clientId);
+    setEditClientForm({
+      type: client.type,
+      companyName: client.companyName || client.name || '',
+      contactFirstName: primaryContact?.firstName || client.firstName || '',
+      contactLastName: primaryContact?.lastName || client.lastName || '',
+      email: primaryContact?.email || client.email || '',
+      phone: primaryContact?.mobile || client.phone || '',
+      address: client.address || '',
+      city: client.city || '',
+      siret: client.siret || '',
+      tags: client.tags.join(', '),
+      status: client.status,
+    });
+    setEditClientError(null);
+    setShowEditClientModal(true);
+  }, [clients]);
+
+  const closeEditClientModal = useCallback(() => {
+    setShowEditClientModal(false);
+    setEditingClientId(null);
+    setEditClientForm({ ...CREATE_CLIENT_DEFAULTS });
+    setEditClientError(null);
+  }, []);
+
+  const handleSubmitEditClient = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!editingClientId) {
+      return;
+    }
+
+    const companyName = editClientForm.companyName.trim();
+    const firstName = editClientForm.contactFirstName.trim();
+    const lastName = editClientForm.contactLastName.trim();
+    const email = editClientForm.email.trim();
+    const phone = editClientForm.phone.trim();
+    const address = editClientForm.address.trim();
+    const city = editClientForm.city.trim();
+    const siret = editClientForm.type === 'company' ? editClientForm.siret.trim() : '';
+    const tags = editClientForm.tags
+      .split(',')
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+
+    if (editClientForm.type === 'company' && !companyName) {
+      setEditClientError("Renseignez le nom de l'entreprise.");
+      return;
+    }
+
+    if (editClientForm.type === 'individual' && !firstName && !lastName) {
+      setEditClientError('Renseignez au moins un prénom ou un nom.');
+      return;
+    }
+
+    const displayName =
+      editClientForm.type === 'company'
+        ? companyName || [firstName, lastName].filter(Boolean).join(' ') || 'Client sans nom'
+        : [firstName, lastName].filter(Boolean).join(' ') || companyName || 'Client sans nom';
+
+    const updated = updateClient(editingClientId, {
+      type: editClientForm.type,
+      name: displayName,
+      companyName: editClientForm.type === 'company' ? companyName : null,
+      firstName: editClientForm.type === 'individual' ? firstName : null,
+      lastName: editClientForm.type === 'individual' ? lastName : null,
+      siret,
+      email,
+      phone,
+      address,
+      city,
+      status: editClientForm.status,
+      tags,
+    });
+
+    if (updated) {
+      setFeedbackMessage(`Client « ${updated.name} » mis à jour avec succès.`);
+      closeEditClientModal();
+    } else {
+      setEditClientError('Une erreur est survenue lors de la mise à jour du client.');
+    }
+  };
+
+  const resetCreateClientForm = useCallback(() => {
+    setCreateClientForm({ ...CREATE_CLIENT_DEFAULTS });
+    setCreateClientError(null);
+  }, []);
+
+  const openCreateClientModal = useCallback(() => {
+    resetCreateClientForm();
+    setShowCreateClientModal(true);
+  }, [resetCreateClientForm]);
+
+  const closeCreateClientModal = useCallback(() => {
+    setShowCreateClientModal(false);
+    resetCreateClientForm();
+  }, [resetCreateClientForm]);
+
+  const handleSubmitCreateClient = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    const companyName = createClientForm.companyName.trim();
+    const firstName = createClientForm.contactFirstName.trim();
+    const lastName = createClientForm.contactLastName.trim();
+    const email = createClientForm.email.trim();
+    const phone = createClientForm.phone.trim();
+    const address = createClientForm.address.trim();
+    const city = createClientForm.city.trim();
+    const siret = createClientForm.type === 'company' ? createClientForm.siret.trim() : '';
+    const tags = createClientForm.tags
+      .split(',')
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+
+    if (createClientForm.type === 'company' && !companyName) {
+      setCreateClientError("Renseignez le nom de l'entreprise.");
+      return;
+    }
+
+    if (createClientForm.type === 'individual' && !firstName && !lastName) {
+      setCreateClientError('Renseignez au moins un prénom ou un nom.');
+      return;
+    }
+
+    const displayName =
+      createClientForm.type === 'company'
+        ? companyName || [firstName, lastName].filter(Boolean).join(' ') || 'Client sans nom'
+        : [firstName, lastName].filter(Boolean).join(' ') || companyName || 'Client sans nom';
+
+    const hasContactDetails = Boolean(firstName || lastName || email || phone);
+
+    const createdClient = addClient({
+      type: createClientForm.type,
+      name: displayName,
+      companyName: createClientForm.type === 'company' ? companyName : null,
+      firstName: firstName || null,
+      lastName: lastName || null,
+      siret,
+      email,
+      phone,
+      address,
+      city,
+      status: createClientForm.status,
+      tags,
+      contacts: hasContactDetails
+        ? [
+            {
+              id: `ct-temp-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+              firstName: firstName || '',
+              lastName: lastName || '',
+              email,
+              mobile: phone,
+              roles: ['facturation'],
+              isBillingDefault: true,
+              active: true,
+            },
+          ]
+        : [],
+    });
+
+    setFeedbackMessage(`Client « ${createdClient.name} » créé avec succès.`);
+    closeCreateClientModal();
+  };
+
+  useEffect(() => {
+    if (!showCreateClientModal && !showEditClientModal) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        if (showCreateClientModal) {
+          closeCreateClientModal();
+        }
+        if (showEditClientModal) {
+          closeEditClientModal();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showCreateClientModal, showEditClientModal, closeCreateClientModal, closeEditClientModal]);
+
+  const totalRevenue = useMemo(
+    () => filteredData.reduce((acc, row) => acc + row.revenue, 0),
+    [filteredData]
+  );
+
+  const clientKpis = useMemo(() => {
+    const totalClients = tableData.length;
+    const activeClients = tableData.filter((row) => row.status === 'Actif').length;
+    const prospectClients = tableData.filter((row) => row.status === 'Prospect').length;
+    const averageRevenue = totalClients > 0 ? totalRevenue / totalClients : 0;
 
     return [
-      <div key={`${client.id}-identity`} className="flex items-start gap-3">
-        <input
-          type="checkbox"
-          className="table-checkbox mt-0.5 h-4 w-4 flex-shrink-0 rounded focus:ring-primary/40"
-          checked={isSelected}
-          onChange={() => toggleClientSelection(client.id)}
-          onClick={(event) => event.stopPropagation()}
-          aria-label={`Sélectionner ${client.name}`}
-        />
-        <div className="space-y-1 text-left text-[11px] text-slate-600">
-          <p className="truncate text-sm font-semibold text-slate-900" title={client.name}>
-            {client.name}
-          </p>
-          <p className="text-[10px] uppercase tracking-[0.28em] text-slate-400">SIRET {client.siret || '—'}</p>
-          {client.tags.length > 0 && (
-            <p className="truncate text-[10px] text-slate-400" title={client.tags.join(', ')}>
-              {client.tags.join(' · ')}
-            </p>
-          )}
-        </div>
-      </div>,
-      <div key={`${client.id}-details`} className="space-y-1 text-[11px] text-slate-600">
-        <p className="truncate" title={client.city || '—'}>
-          {client.city || '—'}
-        </p>
-        <p className="truncate" title={contactEmail}>
-          {contactEmail}
-        </p>
-        <p className="truncate" title={contactPhone}>
-          {contactPhone}
-        </p>
-      </div>,
-      <div key={`${client.id}-contacts`} className="space-y-1 text-[11px] text-slate-600">
-        <p>{activeContacts.length} contact(s) actif(s)</p>
-        {billing && (
-          <p className="truncate text-[10px] text-slate-500" title={`Facturation : ${billing.firstName} ${billing.lastName}`}>
-            Facturation : {billing.firstName} {billing.lastName}
-          </p>
-        )}
-      </div>,
-      <span key={`${client.id}-last`} className="text-[11px] text-slate-600">{lastDate}</span>,
-      <span key={`${client.id}-revenue`} className="text-[11px] font-semibold text-slate-800">
-        {formatCurrency(revenue)}
-      </span>,
-      <div key={`${client.id}-actions`} className="flex items-center gap-1.5">
-        {hasPermission('client.edit') && (
-          <RowActionButton label="Modifier" onClick={() => handleEditShortcut(client)}>
-            <IconEdit />
-          </RowActionButton>
-        )}
-        {hasPermission('client.contact.add') && (
-          <RowActionButton label="Ajouter un contact" onClick={() => handleAddContactShortcut(client)}>
-            <IconPlus />
-          </RowActionButton>
-        )}
-        {hasPermission('client.invoice') && (
-          <RowActionButton label="Créer facture" onClick={() => handleEngagementShortcut(client, 'facture')}>
-            <IconReceipt />
-          </RowActionButton>
-        )}
-        {hasPermission('client.quote') && (
-          <RowActionButton label="Créer devis" onClick={() => handleEngagementShortcut(client, 'devis')}>
-            <IconDocument />
-          </RowActionButton>
-        )}
-        {hasPermission('client.email') && (
-          <RowActionButton label="Envoyer" onClick={() => handleMailto(client)}>
-            <IconPaperPlane />
-          </RowActionButton>
-        )}
-        {hasPermission('client.archive') && (
-          <RowActionButton label="Archiver" tone="danger" onClick={() => handleDeleteClient(client)}>
-            <IconArchive />
-          </RowActionButton>
-        )}
-      </div>,
+      {
+        id: 'total',
+        label: 'Clients suivis',
+        value: totalClients.toLocaleString('fr-FR'),
+        helper: `${activeClients.toLocaleString('fr-FR')} actifs`,
+      },
+      {
+        id: 'prospects',
+        label: 'Prospects engagés',
+        value: prospectClients.toLocaleString('fr-FR'),
+        helper: 'Pipeline en qualification',
+      },
+      {
+        id: 'avg-revenue',
+        label: 'CA moyen / client',
+        value: formatCurrency(averageRevenue),
+        helper: `Total ${formatCurrency(totalRevenue)}`,
+      },
     ];
-  });
+  }, [tableData, totalRevenue]);
 
-  const clientRowClassName = (index: number) => {
-    const client = filteredClients[index];
-    if (!client) {
-      return '';
-    }
-    const isSelected = selectedClientIds.includes(client.id);
-    const isActive = selectedClientId === client.id;
-    return clsx(
-      'border-l-2 border-transparent',
-      (isSelected || isActive) && 'border-primary/60 bg-primary/5'
-    );
-  };
+
   return (
-    <div className="space-y-8">
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card padding="sm" className="md:col-span-1">
-          <div className="space-y-1 text-xs text-slate-600">
-            <p className="text-[11px] uppercase tracking-[0.3em] text-slate-400">Clients</p>
-            <p className="text-2xl font-semibold text-slate-900">{clientCount}</p>
-            <p>Suivies dans {BRAND_NAME}</p>
+    <div className="dashboard-page space-y-10">
+      <header className="dashboard-hero">
+        <div className="dashboard-hero__content">
+          <div className="dashboard-hero__intro">
+            <p className="dashboard-hero__eyebrow">Gestion CRM</p>
+            <h1 className="dashboard-hero__title">Clients</h1>
+            <p className="dashboard-hero__subtitle">
+              Gérez vos prospects et clients en un seul endroit
+            </p>
           </div>
-        </Card>
-        <Card padding="sm" className="md:col-span-1">
-          <div className="space-y-1 text-xs text-slate-600">
-            <p className="text-[11px] uppercase tracking-[0.3em] text-slate-400">Contacts actifs</p>
-            <p className="text-2xl font-semibold text-slate-900">{contactCount}</p>
-            <p>Rattachés aux clients</p>
-          </div>
-        </Card>
-        <Card padding="sm" className="md:col-span-1">
-          <div className="space-y-1 text-xs text-slate-600">
-            <p className="text-[11px] uppercase tracking-[0.3em] text-slate-400">Chiffre d’affaires</p>
-            <p className="text-2xl font-semibold text-slate-900">{formatCurrency(globalRevenue)}</p>
-            <p>Pondéré par les prestations facturées</p>
-          </div>
-        </Card>
-      </div>
+        </div>
+        <div className="dashboard-hero__glow" aria-hidden />
+      </header>
 
       {feedback && (
-        <div className="rounded-soft border border-primary/30 bg-primary/5 px-4 py-2 text-xs text-primary">
-          <div className="flex items-center justify-between gap-3">
-            <span>{feedback}</span>
-            {undoAvailable && (
-              <button
-                type="button"
-                onClick={handleUndoDelete}
-                className="rounded-soft px-2 py-1 text-[11px] font-semibold text-primary underline-offset-2 transition-colors hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-              >
-                Annuler
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-      {importFeedback && (
-        <div className="rounded-soft border border-slate-300 bg-white px-4 py-2 text-xs text-slate-700">
-          {importFeedback}
+        <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700 shadow-sm dark:border-blue-900/40 dark:bg-blue-900/30 dark:text-blue-200">
+          {feedback}
         </div>
       )}
 
-      <div ref={listSectionRef}>
-        <Card padding="sm" className="space-y-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <label className="flex flex-col gap-1 text-xs text-slate-600">
-              <span className="text-[11px] uppercase tracking-[0.3em] text-slate-400">Recherche client</span>
-              <input
-                type="search"
-                value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
-                className="rounded-soft border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                placeholder="Nom ou SIRET"
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-xs text-slate-600">
-              <span className="text-[11px] uppercase tracking-[0.3em] text-slate-400">Recherche contact</span>
-              <input
-                type="search"
-                value={contactQuery}
-                onChange={(event) => setContactQuery(event.target.value)}
-                className="rounded-soft border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                placeholder="Nom, email, mobile"
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-xs text-slate-600">
-              <span className="text-[11px] uppercase tracking-[0.3em] text-slate-400">Filtrer par rôle</span>
-              <select
-                value={roleFilter}
-                onChange={(event) => setRoleFilter(event.target.value as 'all' | ClientContactRole)}
-                className="rounded-soft border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-              >
-                <option value="all">Tous</option>
-                {contactRoleOptions.map((role) => (
-                  <option key={role} value={role}>
-                    {roleLabels[role]}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex flex-col gap-1 text-xs text-slate-600">
-              <span className="text-[11px] uppercase tracking-[0.3em] text-slate-400">Contact facturation</span>
-              <select
-                value={billingFilter}
-                onChange={(event) => setBillingFilter(event.target.value as 'all' | 'with' | 'without')}
-                className="rounded-soft border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-              >
-                <option value="all">Tous</option>
-                <option value="with">Avec contact défini</option>
-                <option value="without">Sans contact défini</option>
-              </select>
-            </label>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {hasPermission('client.edit') && (
-              <Button type="button" variant="secondary" size="sm" onClick={() => setCreationOpen(true)}>
-                Nouveau client
-              </Button>
-            )}
-            {hasPermission('client.edit') && (
-              <label className="inline-flex cursor-pointer items-center">
-                <input
-                  type="file"
-                  accept=".csv,text/csv"
-                  className="hidden"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    if (file) {
-                      void openImportConfigurator(file);
-                      event.target.value = '';
-                    }
-                  }}
-                />
-                <span className="inline-flex items-center rounded-soft border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:text-slate-900">
-                  Importer CSV
-                </span>
-              </label>
-            )}
-            <Button type="button" variant="ghost" size="sm" onClick={handleExport}>
-              Exporter
-            </Button>
-          </div>
-        </div>
-
-        <div className="mt-4 flex flex-wrap items-center gap-3 text-[11px] uppercase tracking-[0.2em] text-slate-500">
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              className="table-checkbox h-4 w-4 rounded focus:ring-primary/40"
-              checked={allClientsSelected}
-              onChange={toggleSelectAllClients}
-            />
-            <span>Sélectionner tout</span>
-          </div>
-          {!!selectedClientIds.length && (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-slate-400">|</span>
-              <span>{selectedClientIds.length} sélectionnés</span>
-              {hasPermission('client.email') && (
-                <Button variant="ghost" size="xs" onClick={handleBulkSendClients}>
-                  Envoyer
-                </Button>
-              )}
-              {hasPermission('client.archive') && (
-                <Button
-                  variant="ghost"
-                  size="xs"
-                  onClick={handleBulkArchiveClients}
-                  className="text-rose-600 hover:text-rose-700"
-                >
-                  Archiver
-                </Button>
-              )}
-              <button
-                type="button"
-                onClick={clearSelectedClients}
-                className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-400 transition hover:text-slate-600"
-              >
-                Vider la sélection
-              </button>
-            </div>
-          )}
-        </div>
-
-        <Table
-          className="mt-3"
-          columns={columns}
-          rows={rows}
-          tone="plain"
-          density="compact"
-          striped={false}
-          bordered={false}
-          dividers={false}
-          onRowClick={(rowIndex) => {
-            const client = filteredClients[rowIndex];
-            if (client) {
-              setSelectedClientId(client.id);
-              setCreationOpen(false);
-            }
-          }}
-          rowClassName={clientRowClassName}
-        />
-        </Card>
-      </div>
-
-      {creationOpen && (
-        <div ref={creationSectionRef}>
-          <Card padding="md" className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-semibold text-slate-900">Nouveau client</p>
-                <p className="text-xs text-slate-500">
-                  Sélectionnez le type et complétez les informations principales.
-                </p>
+      <section className="space-y-4">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {clientKpis.map((kpi, index) => {
+            const Icon = [Users, Flame, TrendingUp][index] ?? Users;
+            return (
+              <div key={kpi.label} className="dashboard-kpi group">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1">
+                    <p className="dashboard-kpi__eyebrow">{kpi.label}</p>
+                    <p className="dashboard-kpi__value">{kpi.value}</p>
+                    <p className="dashboard-kpi__description">{kpi.helper}</p>
+                  </div>
+                  <div className="dashboard-kpi__icon">
+                    <Icon />
+                  </div>
+                </div>
+                <div className="dashboard-kpi__glow" aria-hidden />
               </div>
-              <Button type="button" variant="ghost" size="sm" onClick={() => setCreationOpen(false)}>
-                Fermer
-              </Button>
-            </div>
-            <form onSubmit={handleCreateClient} className="space-y-8 text-sm text-slate-700">
-              <div className="space-y-6">
-                <div className="space-y-2">
-                  <span className="text-xs text-slate-500">Type de client</span>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleSelectClientType('company')}
-                      className={clsx(
-                        'rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] transition',
-                        clientForm.type === 'company'
-                          ? 'border-primary bg-primary/10 text-primary'
-                          : 'border-slate-300 text-slate-600 hover:border-slate-400'
-                      )}
-                    >
-                      Société
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleSelectClientType('individual')}
-                      className={clsx(
-                        'rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] transition',
-                        clientForm.type === 'individual'
-                          ? 'border-primary bg-primary/10 text-primary'
-                          : 'border-slate-300 text-slate-600 hover:border-slate-400'
-                      )}
-                    >
-                      Particulier
-                    </button>
-                  </div>
-                </div>
-                {clientForm.type === 'company' ? (
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <label className="space-y-1">
-                      <span className="text-xs text-slate-500">Nom société *</span>
-                      <input
-                        type="text"
-                        value={clientForm.companyName}
-                        onChange={(event) =>
-                          setClientForm((form) => ({ ...form, companyName: event.target.value }))
-                        }
-                        className="w-full rounded-soft border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                      />
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-xs text-slate-500">SIRET *</span>
-                      <input
-                        type="text"
-                        value={clientForm.siret}
-                        onChange={(event) =>
-                          setClientForm((form) => ({ ...form, siret: event.target.value }))
-                        }
-                        className="w-full rounded-soft border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                      />
-                    </label>
-                  </div>
-                ) : (
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <label className="space-y-1">
-                      <span className="text-xs text-slate-500">Prénom *</span>
-                      <input
-                        type="text"
-                        value={clientForm.firstName}
-                        onChange={(event) =>
-                          setClientForm((form) => ({ ...form, firstName: event.target.value }))
-                        }
-                        className="w-full rounded-soft border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                      />
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-xs text-slate-500">Nom *</span>
-                      <input
-                        type="text"
-                        value={clientForm.lastName}
-                        onChange={(event) =>
-                          setClientForm((form) => ({ ...form, lastName: event.target.value }))
-                        }
-                        className="w-full rounded-soft border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                      />
-                    </label>
-                  </div>
-                )}
-                <div className="grid gap-4 md:grid-cols-2">
-                  <label className="space-y-1">
-                    <span className="text-xs text-slate-500">Statut</span>
-                    <select
-                      value={clientForm.status}
-                      onChange={(event) =>
-                        setClientForm((form) => ({
-                          ...form,
-                          status: event.target.value as Client['status'],
-                        }))
-                      }
-                      className="w-full rounded-soft border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                    >
-                      <option value="Actif">Actif</option>
-                      <option value="Prospect">Prospect</option>
-                    </select>
-                  </label>
-                  <label className="space-y-1">
-                    <span className="text-xs text-slate-500">Email</span>
-                    <input
-                      type="email"
-                      value={clientForm.email}
-                      onChange={(event) =>
-                        setClientForm((form) => ({ ...form, email: event.target.value }))
-                      }
-                      className="w-full rounded-soft border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                    />
-                  </label>
-                  <label className="space-y-1">
-                    <span className="text-xs text-slate-500">Téléphone</span>
-                    <input
-                      type="tel"
-                      value={clientForm.phone}
-                      onChange={(event) =>
-                        setClientForm((form) => ({ ...form, phone: event.target.value }))
-                      }
-                      className="w-full rounded-soft border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                    />
-                  </label>
-                  <label className="space-y-1">
-                    <span className="text-xs text-slate-500">Ville</span>
-                    <input
-                      type="text"
-                      value={clientForm.city}
-                      onChange={(event) =>
-                        setClientForm((form) => ({ ...form, city: event.target.value }))
-                      }
-                      className="w-full rounded-soft border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                    />
-                  </label>
-                  <label className="md:col-span-2 space-y-1">
-                    <span className="text-xs text-slate-500">
-                      {clientForm.type === 'individual' ? 'Adresse (optionnelle)' : 'Adresse'}
-                    </span>
-                    <input
-                      type="text"
-                      value={clientForm.address}
-                      onChange={(event) =>
-                        setClientForm((form) => ({ ...form, address: event.target.value }))
-                      }
-                      className="w-full rounded-soft border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                    />
-                  </label>
-                  <label className="md:col-span-2 space-y-1">
-                    <span className="text-xs text-slate-500">Tags</span>
-                    <input
-                      type="text"
-                      value={clientForm.tags}
-                      onChange={(event) =>
-                        setClientForm((form) => ({ ...form, tags: event.target.value }))
-                      }
-                      className="w-full rounded-soft border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                      placeholder="Séparés par une virgule"
-                    />
-                  </label>
-                </div>
-              </div>
+            );
+          })}
+        </div>
+      </section>
 
-            <div className="space-y-4">
-              <p className="text-sm font-semibold text-slate-900">Contact principal</p>
-              <div className="grid gap-4 md:grid-cols-3">
-                <label className="space-y-1">
-                  <span className="text-xs text-slate-500">Prénom *</span>
-                  <input
-                    type="text"
-                    value={creationContactForm.firstName}
-                    onChange={(event) =>
-                      setCreationContactForm((form) => ({ ...form, firstName: event.target.value }))
-                    }
-                    className="w-full rounded-soft border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  />
-                </label>
-                <label className="space-y-1">
-                  <span className="text-xs text-slate-500">Nom *</span>
-                  <input
-                    type="text"
-                    value={creationContactForm.lastName}
-                    onChange={(event) =>
-                      setCreationContactForm((form) => ({ ...form, lastName: event.target.value }))
-                    }
-                    className="w-full rounded-soft border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  />
-                </label>
-                <label className="space-y-1">
-                  <span className="text-xs text-slate-500">Mobile *</span>
-                  <input
-                    type="tel"
-                    value={creationContactForm.mobile}
-                    onChange={(event) =>
-                      setCreationContactForm((form) => ({ ...form, mobile: event.target.value }))
-                    }
-                    className="w-full rounded-soft border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  />
-                </label>
-                <label className="md:col-span-2 space-y-1">
-                  <span className="text-xs text-slate-500">Email *</span>
-                  <input
-                    type="email"
-                    value={creationContactForm.email}
-                    onChange={(event) =>
-                      setCreationContactForm((form) => ({ ...form, email: event.target.value }))
-                    }
-                    className="w-full rounded-soft border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  />
-                </label>
-                <div className="space-y-1">
-                  <span className="text-xs text-slate-500">Rôles *</span>
-                  <div className="flex flex-wrap gap-2 text-xs text-slate-600">
-                    {contactRoleOptions.map((role) => {
-                      const active = creationContactForm.roles.includes(role);
-                      return (
-                        <button
-                          key={role}
-                          type="button"
-                          onClick={() =>
-                            setCreationContactForm((form) => ({
-                              ...form,
-                              roles: toggleRole(form.roles, role),
-                            }))
-                          }
-                          className={clsx(
-                            'rounded-full border px-3 py-1 transition',
-                            active
-                              ? 'border-primary bg-primary/10 text-primary'
-                              : 'border-slate-300 text-slate-600 hover:border-slate-400'
-                          )}
-                        >
-                          {roleLabels[role]}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-                <label className="flex items-center gap-2 text-xs text-slate-600">
+      <section className="space-y-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-colors md:p-5 dark:border-[var(--border)] dark:bg-[var(--surface)]">
+        <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex flex-1 items-center gap-4">
+                <div className="flex items-center gap-2">
                   <input
                     type="checkbox"
-                    checked={creationContactForm.isBillingDefault}
-                    onChange={(event) =>
-                      setCreationContactForm((form) => ({
-                        ...form,
-                        isBillingDefault: event.target.checked,
-                      }))
-                    }
-                    className="table-checkbox h-4 w-4 rounded focus:ring-primary/40"
+                    checked={allSelected}
+                    onChange={handleToggleSelectAll}
+                    className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-2 focus:ring-blue-500"
                   />
-                  <span>Définir comme contact de facturation</span>
-                </label>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2">
-              <Button type="button" variant="ghost" size="sm" onClick={() => setCreationOpen(false)}>
-                Annuler
-              </Button>
-              <Button type="submit" size="sm" disabled={isSubmitting}>
-                Créer le client
-              </Button>
-            </div>
-          </form>
-          </Card>
-        </div>
-      )}
-
-      {selectedClient && (
-        <div ref={detailSectionRef}>
-          <Card padding="md" className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p ref={detailFocusRef} tabIndex={-1} className="text-sm font-semibold text-slate-900 focus:outline-none">
-                  {selectedClient.name}
-                </p>
-                <p className="text-xs text-slate-500">
-                  {selectedClient.type === 'company'
-                    ? `SIRET ${selectedClient.siret || '—'}`
-                    : 'Client particulier'}
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button type="button" variant="ghost" size="sm" onClick={() => setIsEditingClient((value) => !value)}>
-                {isEditingClient ? 'Annuler' : 'Modifier'}
-              </Button>
-              <Button type="button" variant="ghost" size="sm" onClick={closeDetail}>
-                Fermer
-              </Button>
-            </div>
-
-          <div className="space-y-4">
-            {isEditingClient ? (
-              <form onSubmit={handleUpdateClient} className="space-y-6 text-sm text-slate-700">
-                <div className="space-y-2">
-                  <span className="text-xs text-slate-500">Type de client</span>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleEditClientType('company')}
-                      className={clsx(
-                        'rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] transition',
-                        editClientForm.type === 'company'
-                          ? 'border-primary bg-primary/10 text-primary'
-                          : 'border-slate-300 text-slate-600 hover:border-slate-400'
-                      )}
-                    >
-                      Société
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleEditClientType('individual')}
-                      className={clsx(
-                        'rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] transition',
-                        editClientForm.type === 'individual'
-                          ? 'border-primary bg-primary/10 text-primary'
-                          : 'border-slate-300 text-slate-600 hover:border-slate-400'
-                      )}
-                    >
-                      Particulier
-                    </button>
-                  </div>
+                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Tout sélectionner</span>
                 </div>
-                {editClientForm.type === 'company' ? (
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <label className="space-y-1">
-                      <span className="text-xs text-slate-500">Nom société *</span>
-                      <input
-                        type="text"
-                        value={editClientForm.companyName}
-                        onChange={(event) =>
-                          setEditClientForm((form) => ({ ...form, companyName: event.target.value }))
-                        }
-                        className="w-full rounded-soft border border-slate-300 bg-white px-3 py-2 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                      />
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-xs text-slate-500">SIRET</span>
-                      <input
-                        type="text"
-                        value={editClientForm.siret}
-                        onChange={(event) =>
-                          setEditClientForm((form) => ({ ...form, siret: event.target.value }))
-                        }
-                        className="w-full rounded-soft border border-slate-300 bg-white px-3 py-2 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                      />
-                    </label>
-                  </div>
-                ) : (
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <label className="space-y-1">
-                      <span className="text-xs text-slate-500">Prénom *</span>
-                      <input
-                        type="text"
-                        value={editClientForm.firstName}
-                        onChange={(event) =>
-                          setEditClientForm((form) => ({ ...form, firstName: event.target.value }))
-                        }
-                        className="w-full rounded-soft border border-slate-300 bg-white px-3 py-2 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                      />
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-xs text-slate-500">Nom *</span>
-                      <input
-                        type="text"
-                        value={editClientForm.lastName}
-                        onChange={(event) =>
-                          setEditClientForm((form) => ({ ...form, lastName: event.target.value }))
-                        }
-                        className="w-full rounded-soft border border-slate-300 bg-white px-3 py-2 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                      />
-                    </label>
+                {selectedRows.size > 0 && (
+                  <div className="flex flex-wrap items-center gap-2 border-l border-slate-200 pl-4 dark:border-slate-700">
+                    <span className="text-sm text-slate-600 dark:text-slate-400">
+                      {selectedRows.size} sélectionné(s)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleBulkPrint}
+                      className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
+                    >
+                      <Printer className="h-4 w-4" />
+                      Imprimer
+                    </button>
+                    {hasPermission('client.email') && (
+                      <button
+                        type="button"
+                        onClick={handleBulkEmail}
+                        className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
+                      >
+                        <Send className="h-4 w-4" />
+                        Envoyer
+                      </button>
+                    )}
+                    {hasPermission('client.archive') && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={handleBulkArchive}
+                          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-rose-600 transition hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-900/30"
+                        >
+                          Archiver
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleBulkDelete}
+                          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-red-600 transition hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/30"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          Supprimer
+                        </button>
+                      </>
+                    )}
                   </div>
                 )}
-                <div className="grid gap-4 md:grid-cols-3">
-                  <label className="space-y-1">
-                    <span className="text-xs text-slate-500">Statut</span>
-                    <select
-                      value={editClientForm.status}
-                      onChange={(event) =>
-                        setEditClientForm((form) => ({
-                          ...form,
-                          status: event.target.value as Client['status'],
-                        }))
-                      }
-                      className="w-full rounded-soft border border-slate-300 bg-white px-3 py-2 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                    >
-                      <option value="Actif">Actif</option>
-                      <option value="Prospect">Prospect</option>
-                    </select>
-                  </label>
-                  <label className="space-y-1">
-                    <span className="text-xs text-slate-500">Email</span>
-                    <input
-                      type="email"
-                      value={editClientForm.email}
-                      onChange={(event) =>
-                        setEditClientForm((form) => ({ ...form, email: event.target.value }))
-                      }
-                      className="w-full rounded-soft border border-slate-300 bg-white px-3 py-2 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                    />
-                  </label>
-                  <label className="space-y-1">
-                    <span className="text-xs text-slate-500">Téléphone</span>
-                    <input
-                      type="tel"
-                      value={editClientForm.phone}
-                      onChange={(event) =>
-                        setEditClientForm((form) => ({ ...form, phone: event.target.value }))
-                      }
-                      className="w-full rounded-soft border border-slate-300 bg-white px-3 py-2 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                    />
-                  </label>
-                  <label className="space-y-1">
-                    <span className="text-xs text-slate-500">Ville</span>
-                    <input
-                      type="text"
-                      value={editClientForm.city}
-                      onChange={(event) =>
-                        setEditClientForm((form) => ({ ...form, city: event.target.value }))
-                      }
-                      className="w-full rounded-soft border border-slate-300 bg-white px-3 py-2 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                    />
-                  </label>
-                  <label className="md:col-span-3 space-y-1">
-                    <span className="text-xs text-slate-500">
-                      {editClientForm.type === 'individual' ? 'Adresse (optionnelle)' : 'Adresse'}
-                    </span>
-                    <input
-                      type="text"
-                      value={editClientForm.address}
-                      onChange={(event) =>
-                        setEditClientForm((form) => ({ ...form, address: event.target.value }))
-                      }
-                      className="w-full rounded-soft border border-slate-300 bg-white px-3 py-2 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                    />
-                  </label>
-                  <label className="md:col-span-3 space-y-1">
-                    <span className="text-xs text-slate-500">Tags</span>
-                    <input
-                      type="text"
-                      value={editClientForm.tags}
-                      onChange={(event) =>
-                        setEditClientForm((form) => ({ ...form, tags: event.target.value }))
-                      }
-                      className="w-full rounded-soft border border-slate-300 bg-white px-3 py-2 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                      placeholder="Séparés par une virgule"
-                    />
-                  </label>
-                </div>
-                <div className="flex items-center justify-end gap-2">
-                  <Button type="button" variant="ghost" size="sm" onClick={() => setIsEditingClient(false)}>
-                    Annuler
-                  </Button>
-                  <Button type="submit" size="sm">
-                    Enregistrer
-                  </Button>
-                </div>
-              </form>
-            ) : (
-              <div className="grid gap-4 text-xs text-slate-600 md:grid-cols-3">
-                <div>
-                  <p className="text-[11px] uppercase tracking-[0.3em] text-slate-400">Contact facturation</p>
-                  <p className="text-sm text-slate-900">
-                    {billingContact ? `${billingContact.firstName} ${billingContact.lastName}` : '—'}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-[11px] uppercase tracking-[0.3em] text-slate-400">Coordonnées</p>
-                  <p>{selectedClient.email || '—'}</p>
-                  <p>{selectedClient.phone || '—'}</p>
-                </div>
-                <div>
-                  <p className="text-[11px] uppercase tracking-[0.3em] text-slate-400">Adresse</p>
-                  <p>{selectedClient.address || '—'}</p>
-                  <p>{selectedClient.city || '—'}</p>
-                </div>
               </div>
-            )}
+              <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-end lg:w-auto">
+                <button
+                  type="button"
+                  onClick={openCreateClientModal}
+                  className="flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-primary/90 dark:bg-primary dark:hover:bg-primary/90"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span className="hidden sm:inline">Nouveau client</span>
+                  <span className="sm:hidden">Nouveau</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowFilters((value) => !value)}
+                  className={clsx(
+                    'relative flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition',
+                    showFilters || activeFiltersCount > 0
+                      ? 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-200 dark:hover:bg-blue-900/40'
+                      : 'bg-slate-50 text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
+                  )}
+                >
+                  <Filter className="h-4 w-4" />
+                  Filtres
+                  {activeFiltersCount > 0 && (
+                    <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-xs text-white dark:bg-blue-500">
+                      {activeFiltersCount}
+                    </span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExport}
+                  className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600"
+                >
+                  <Download className="h-4 w-4" />
+                  <span className="hidden sm:inline">Export</span>
+                </button>
+              </div>
+            </div>
           </div>
 
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-semibold text-slate-900">Contacts</p>
-              {hasPermission('client.contact.add') && (
-                <Button type="button" size="sm" variant="secondary" onClick={() => openContactForm()}>
-                  Ajouter un contact
-                </Button>
+          {showFilters && (
+            <div className="space-y-4 border-t border-slate-200 pt-6 dark:border-slate-800">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div>
+                  <label className="mb-2 block text-xs font-medium text-slate-600 dark:text-slate-300">Statut</label>
+                  <select
+                    value={filters.status}
+                    onChange={(event) =>
+                      setFilters((state) => ({
+                        ...state,
+                        status: event.target.value as FilterState['status'],
+                      }))
+                    }
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                  >
+                    <option value="">Tous</option>
+                    <option value="Actif">Actif</option>
+                    <option value="Prospect">Prospect</option>
+                    <option value="Inactif">Inactif</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-2 block text-xs font-medium text-slate-600 dark:text-slate-300">
+                    Segment
+                  </label>
+                  <select
+                    value={filters.segment}
+                    onChange={(event) =>
+                      setFilters((state) => ({
+                        ...state,
+                        segment: event.target.value as FilterState['segment'],
+                      }))
+                    }
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                  >
+                    <option value="">Tous</option>
+                    {uniqueSegments.map((segment) => (
+                      <option key={segment} value={segment}>
+                        {segment}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-2 block text-xs font-medium text-slate-600 dark:text-slate-300">Ville</label>
+                  <select
+                    value={filters.city}
+                    onChange={(event) =>
+                      setFilters((state) => ({ ...state, city: event.target.value }))
+                    }
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                  >
+                    <option value="">Toutes</option>
+                    {uniqueCities.map((city) => (
+                      <option key={city} value={city}>
+                        {city}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-2 block text-xs font-medium text-slate-600 dark:text-slate-300">Tag</label>
+                  <select
+                    value={filters.tag}
+                    onChange={(event) =>
+                      setFilters((state) => ({ ...state, tag: event.target.value }))
+                    }
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                  >
+                    <option value="">Tous</option>
+                    {uniqueTags.map((tag) => (
+                      <option key={tag} value={tag}>
+                        {tag}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              {activeFiltersCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setFilters({
+                      status: '',
+                      segment: '',
+                      city: '',
+                      tag: '',
+                    })
+                  }
+                  className="flex items-center gap-1 text-sm font-medium text-blue-600 hover:text-blue-700"
+                >
+                  <X className="h-4 w-4" />
+                  Effacer les filtres
+                </button>
               )}
             </div>
-            <div className="space-y-3">
-              {selectedClient.contacts.map((contact) => {
-                const isUsed = (contactUsage.get(contact.id) ?? 0) > 0;
+          )}
+
+      </section>
+
+      <div className="hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-colors dark:border-[var(--border)] dark:bg-[var(--surface)] lg:block">
+        <div className="overflow-x-auto rounded-2xl">
+          <table className="w-full">
+            <thead className="border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/60">
+              <tr>
+                <th className="px-4 py-4 w-12" />
+                <th className="px-6 py-4 text-center text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                  Type
+                </th>
+                <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                  Organisation / Contact
+                </th>
+                <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                  Dernier événement
+                </th>
+                <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                  Chiffre d'affaires
+                </th>
+                <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                  Contact
+                </th>
+                <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {filteredData.map((row) => {
+                const segmentStyle = segmentConfig[row.segment];
                 return (
-                  <div
-                    key={contact.id}
+                  <tr
+                    key={row.id}
                     className={clsx(
-                      'rounded-soft border px-4 py-3 text-xs transition',
-                      contact.active ? 'border-slate-200 bg-white' : 'border-dashed border-slate-300 bg-slate-50'
+                      'group transition hover:bg-slate-50 dark:hover:bg-white/5 cursor-pointer',
+                      selectedRows.has(row.id) && 'bg-blue-50/50 dark:bg-blue-500/10'
                     )}
+                    onClick={(e) => {
+                      // Ne pas ouvrir la modale si on clique sur la checkbox, les boutons d'action ou les liens
+                      const target = e.target as HTMLElement;
+                      if (
+                        target.closest('input[type="checkbox"]') ||
+                        target.closest('button') ||
+                        target.closest('a')
+                      ) {
+                        return;
+                      }
+                      openEditClientModal(row.id);
+                    }}
                   >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="space-y-1">
-                        <p className="text-sm font-semibold text-slate-900">
-                          {contact.firstName} {contact.lastName}
-                        </p>
-                        <p className="text-slate-600">{contact.email}</p>
-                        <p className="text-slate-600">{contact.mobile}</p>
-                        <div className="flex flex-wrap gap-2">
-                          {contact.roles.map((role) => (
-                            <Tag key={role}>{roleLabels[role]}</Tag>
-                          ))}
-                          {contact.isBillingDefault && <Tag>Facturation par défaut</Tag>}
-                          {!contact.active && <Tag>Archivé</Tag>}
+                    <td className="px-6 py-5" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selectedRows.has(row.id)}
+                        onChange={() => toggleRowSelection(row.id)}
+                        className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-2 focus:ring-blue-500"
+                      />
+                    </td>
+                      <td className="px-6 py-5 align-middle text-center">
+                        <span
+                          className={clsx(
+                            'inline-flex items-center rounded-full px-3 py-1.5 text-xs font-medium',
+                            segmentStyle.color
+                          )}
+                        >
+                          {segmentStyle.label}
+                        </span>
+                      </td>
+                      <td className="px-6 py-5 align-middle">
+                        <div className="flex items-center gap-3">
+                          <div className="space-y-1">
+                            <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                              {row.organization}
+                            </p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">{row.contactName || '—'}</p>
+                            <div className="flex flex-wrap gap-1">
+                              {row.tags.slice(0, 3).map((tag) => (
+                                <span
+                                  key={tag}
+                                  className="rounded bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                                >
+                                  {tag}
+                                </span>
+                              ))}
+                              {row.tags.length > 3 && (
+                                <span className="text-xs text-slate-400 dark:text-slate-500">
+                                  +{row.tags.length - 3}
+                                </span>
+                              )}
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                      <div className="flex flex-col gap-2 text-right">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          className="px-2"
-                          onClick={() => openContactForm(contact)}
-                        >
-                          Modifier
-                        </Button>
-                        {contact.active ? (
-                          <Button
+                      </td>
+                      <td className="px-6 py-5 align-middle">
+                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                          {row.nextActionDate ? formatDate(row.nextActionDate) : '—'}
+                        </p>
+                        <p className="max-w-[220px] truncate text-xs text-slate-600 dark:text-slate-400">
+                          {row.nextActionNote}
+                        </p>
+                      </td>
+                      <td className="px-6 py-5 align-middle">
+                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                          {formatCurrency(row.revenue)}
+                        </p>
+                        <p className="text-xs text-slate-600 dark:text-slate-400">{row.segment}</p>
+                      </td>
+                      <td className="px-6 py-5 align-middle">
+                        <div className="space-y-1 text-sm text-slate-800 dark:text-slate-200">
+                          <p className="font-medium text-slate-900 dark:text-slate-100">{row.email || '—'}</p>
+                          <p>{row.phone || '—'}</p>
+                          <p className="text-xs text-slate-600 dark:text-slate-400">{row.city || '—'}</p>
+                        </div>
+                      </td>
+                      <td className="px-6 py-5 align-middle" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-start gap-2 opacity-100 transition group-hover:translate-x-[1px] group-hover:opacity-100">
+                          {hasPermission('client.email') && (
+                            <button
+                              type="button"
+                              onClick={() => sendEmail(row)}
+                              className="rounded-lg p-2 text-slate-600 transition hover:bg-blue-100 hover:text-blue-700 dark:text-slate-300 dark:hover:bg-blue-900/30 dark:hover:text-blue-200"
+                              title="Email"
+                            >
+                              <Mail className="h-4 w-4" />
+                            </button>
+                          )}
+                          <button
                             type="button"
-                            size="sm"
-                            variant="ghost"
-                            className="px-2"
-                            onClick={() => handleArchiveContact(selectedClient.id, contact)}
+                            onClick={() => handleCall(row)}
+                            className="rounded-lg p-2 text-slate-600 transition hover:bg-green-100 hover:text-green-700 dark:text-slate-300 dark:hover:bg-green-900/30 dark:hover:text-green-200"
+                            title="Appeler"
                           >
-                            Archiver
-                          </Button>
-                        ) : (
-                          <Button
+                            <Phone className="h-4 w-4" />
+                          </button>
+                          {hasPermission('client.quote') && (
+                            <button
+                              type="button"
+                              onClick={() => handleCreateDocument(row, 'devis')}
+                              className="rounded-lg p-2 text-slate-600 transition hover:bg-purple-100 hover:text-purple-700 dark:text-slate-300 dark:hover:bg-purple-900/30 dark:hover:text-purple-200"
+                              title="Créer devis"
+                            >
+                              <FileText className="h-4 w-4" />
+                            </button>
+                          )}
+                          {hasPermission('client.invoice') && (
+                            <button
+                              type="button"
+                              onClick={() => handleCreateDocument(row, 'facture')}
+                              className="rounded-lg p-2 text-slate-600 transition hover:bg-amber-100 hover:text-amber-600 dark:text-slate-300 dark:hover:bg-amber-900/30 dark:hover:text-amber-200"
+                              title="Créer facture"
+                            >
+                              <Edit2 className="h-4 w-4" />
+                            </button>
+                          )}
+                          <button
                             type="button"
-                            size="sm"
-                            variant="ghost"
-                            className="px-2"
-                            onClick={() => handleRestoreContact(selectedClient.id, contact)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openEditClientModal(row.id);
+                            }}
+                            className="rounded-lg p-2 text-slate-600 transition hover:bg-slate-100 hover:text-slate-800 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                            title="Modifier"
                           >
-                            Restaurer
-                          </Button>
-                        )}
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          className="px-2"
-                          onClick={() => handleSetBillingContact(selectedClient.id, contact.id)}
-                          disabled={!contact.active}
+                            <Edit2 className="h-4 w-4" />
+                          </button>
+                          {hasPermission('client.archive') && (
+                            <button
+                              type="button"
+                              onClick={() => handleArchive(row)}
+                              className="rounded-lg p-2 text-slate-600 transition hover:bg-rose-100 hover:text-rose-600 dark:text-slate-300 dark:hover:bg-rose-900/30 dark:hover:text-rose-200"
+                              title="Archiver"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="space-y-4 lg:hidden">
+        {filteredData.map((row) => {
+          const segmentStyle = segmentConfig[row.segment];
+          return (
+            <div
+              key={row.id}
+              className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-colors cursor-pointer dark:border-[var(--border)] dark:bg-[var(--surface)]"
+              onClick={(e) => {
+                const target = e.target as HTMLElement;
+                if (
+                  target.closest('input[type="checkbox"]') ||
+                  target.closest('button') ||
+                  target.closest('a')
+                ) {
+                  return;
+                }
+                openEditClientModal(row.id);
+              }}
+            >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex flex-1 items-start gap-3" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={selectedRows.has(row.id)}
+                      onChange={() => toggleRowSelection(row.id)}
+                      className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-2 focus:ring-blue-500"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100">
+                        {row.organization}
+                      </h3>
+                      <p className="text-sm text-slate-500 dark:text-slate-400">{row.contactName || '—'}</p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <span
+                          className={clsx(
+                            'rounded-full px-2.5 py-1 text-xs font-medium',
+                            segmentStyle.color
+                          )}
                         >
-                          Définir facturation
-                        </Button>
-                        {isUsed && (
-                          <p className="text-[10px] text-slate-500">Utilisé dans {contactUsage.get(contact.id)} document(s)</p>
-                        )}
+                          {segmentStyle.label}
+                        </span>
+                        {row.tags.slice(0, 3).map((tag) => (
+                          <span
+                            key={tag}
+                            className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                          >
+                            {tag}
+                          </span>
+                        ))}
                       </div>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          </div>
+                </div>
 
-          {isContactFormOpen && (
-            <div className="space-y-4 rounded-soft border border-slate-200 bg-slate-50/60 p-4">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold text-slate-900">
-                  {editingContactId ? 'Modifier le contact' : 'Nouveau contact'}
-                </p>
-                <Button type="button" variant="ghost" size="sm" onClick={closeContactForm}>
-                  Fermer
-                </Button>
-              </div>
-              <form onSubmit={handleContactSubmit} className="grid gap-4 md:grid-cols-3 text-sm text-slate-700">
-                <label className="space-y-1">
-                  <span className="text-xs text-slate-500">Prénom *</span>
-                  <input
-                    type="text"
-                    name="contact-first-name"
-                    value={contactForm.firstName}
-                    onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                      setContactForm((form) => ({ ...form, firstName: event.target.value }))
-                    }
-                    className="w-full rounded-soft border border-slate-300 bg-white px-3 py-2 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  />
-                </label>
-                <label className="space-y-1">
-                  <span className="text-xs text-slate-500">Nom *</span>
-                  <input
-                    type="text"
-                    value={contactForm.lastName}
-                    onChange={(event) =>
-                      setContactForm((form) => ({ ...form, lastName: event.target.value }))
-                    }
-                    className="w-full rounded-soft border border-slate-300 bg-white px-3 py-2 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  />
-                </label>
-                <label className="space-y-1">
-                  <span className="text-xs text-slate-500">Mobile *</span>
-                  <input
-                    type="tel"
-                    value={contactForm.mobile}
-                    onChange={(event) =>
-                      setContactForm((form) => ({ ...form, mobile: event.target.value }))
-                    }
-                    className="w-full rounded-soft border border-slate-300 bg-white px-3 py-2 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  />
-                </label>
-                <label className="md:col-span-2 space-y-1">
-                  <span className="text-xs text-slate-500">Email *</span>
-                  <input
-                    type="email"
-                    value={contactForm.email}
-                    onChange={(event) =>
-                      setContactForm((form) => ({ ...form, email: event.target.value }))
-                    }
-                    className="w-full rounded-soft border border-slate-300 bg-white px-3 py-2 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  />
-                </label>
-                <div className="space-y-1">
-                  <span className="text-xs text-slate-500">Rôles *</span>
-                  <div className="flex flex-wrap gap-2 text-xs text-slate-600">
-                    {contactRoleOptions.map((role) => {
-                      const active = contactForm.roles.includes(role);
-                      return (
-                        <button
-                          key={role}
-                          type="button"
-                          onClick={() =>
-                            setContactForm((form) => ({
-                              ...form,
-                              roles: toggleRole(form.roles, role),
-                            }))
-                          }
-                          className={clsx(
-                            'rounded-full border px-3 py-1 transition',
-                            active
-                              ? 'border-primary bg-primary/10 text-primary'
-                              : 'border-slate-300 text-slate-600 hover:border-slate-400'
-                          )}
-                        >
-                          {roleLabels[role]}
-                        </button>
-                      );
-                    })}
+                <div className="space-y-3 text-sm text-slate-600 dark:text-slate-300">
+                  <div className="flex items-center justify-between">
+                    <span>Chiffre d’affaires</span>
+                    <span className="font-semibold text-slate-800 dark:text-slate-100">
+                      {formatCurrency(row.revenue)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Dernier événement</span>
+                    <span className="text-slate-800 dark:text-slate-100">
+                      {row.nextActionDate ? formatDate(row.nextActionDate) : '—'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">{row.nextActionNote}</p>
+                  <div className="space-y-1 border-t border-slate-200 pt-3 text-sm dark:border-slate-800">
+                    <p className="dark:text-slate-200">{row.email || '—'}</p>
+                    <p className="dark:text-slate-200">{row.phone || '—'}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">{row.city || '—'}</p>
                   </div>
                 </div>
-                <label className="flex items-center gap-2 text-xs text-slate-600">
-                  <input
-                    type="checkbox"
-                    checked={contactForm.isBillingDefault}
-                    onChange={(event) =>
-                      setContactForm((form) => ({
-                        ...form,
-                        isBillingDefault: event.target.checked,
-                      }))
-                    }
-                    className="table-checkbox h-4 w-4 rounded focus:ring-primary/40"
-                  />
-                  <span>Définir comme contact de facturation</span>
-                </label>
-                <div className="md:col-span-3 flex items-center justify-end gap-2">
-                  <Button type="button" variant="ghost" size="sm" onClick={closeContactForm}>
-                    Annuler
-                  </Button>
-                  <Button type="submit" size="sm">
-                    {editingContactId ? 'Enregistrer' : 'Ajouter le contact'}
-                  </Button>
-                </div>
-              </form>
+
+                <div className="flex flex-wrap gap-2 border-t border-slate-200 pt-4 dark:border-slate-800" onClick={(e) => e.stopPropagation()}>
+                  {hasPermission('client.email') && (
+                    <button
+                      type="button"
+                      onClick={() => sendEmail(row)}
+                      className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-200 dark:hover:bg-blue-900/40"
+                    >
+                      <Mail className="h-4 w-4" />
+                      Email
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => handleCall(row)}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-green-50 px-3 py-2 text-sm font-medium text-green-700 transition hover:bg-green-100 dark:bg-green-900/30 dark:text-green-200 dark:hover:bg-green-900/40"
+                  >
+                    <Phone className="h-4 w-4" />
+                    Appel
+                  </button>
+                  {hasPermission('client.quote') && (
+                    <button
+                      type="button"
+                      onClick={() => handleCreateDocument(row, 'devis')}
+                      className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-purple-50 px-3 py-2 text-sm font-medium text-purple-700 transition hover:bg-purple-100 dark:bg-purple-900/30 dark:text-purple-200 dark:hover:bg-purple-900/40"
+                    >
+                      <FileText className="h-4 w-4" />
+                      Devis
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openEditClientModal(row.id);
+                    }}
+                    className="rounded-lg bg-slate-50 p-2 text-slate-600 transition hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                    title="Modifier"
+                  >
+                    <Edit2 className="h-4 w-4" />
+                  </button>
+                  {hasPermission('client.archive') && (
+                    <button
+                      type="button"
+                      onClick={() => handleArchive(row)}
+                      className="rounded-lg bg-rose-50 p-2 text-rose-600 transition hover:bg-rose-100 dark:bg-rose-900/30 dark:text-rose-200 dark:hover:bg-rose-900/40"
+                      title="Archiver"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  )}
             </div>
-          )}
-          </Card>
+          </div>
+          );
+        })}
+      </div>
+
+      {filteredData.length === 0 && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800">
+            <Search className="h-8 w-8 text-slate-400 dark:text-slate-500" />
+          </div>
+          <h3 className="mb-2 text-lg font-semibold text-slate-800 dark:text-slate-100">Aucun résultat trouvé</h3>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            Ajustez votre recherche ou vos filtres pour retrouver vos clients.
+          </p>
         </div>
       )}
 
-      {importConfig && (
-        <Card padding="md" className="space-y-6 border border-primary/30">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-semibold text-slate-900">Configuration de l’import</p>
-              <p className="text-xs text-slate-500">{importConfig.fileName}</p>
+      {showCreateClientModal &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/40 backdrop-blur-md px-4 py-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-client-title"
+            onClick={closeCreateClientModal}
+          >
+            <div
+              className="relative w-full max-w-2xl max-h-[90vh] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl ring-1 ring-slate-900/10 transition dark:border-slate-700 dark:bg-slate-900"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <form
+                onSubmit={handleSubmitCreateClient}
+                className="flex flex-col gap-4 bg-white p-4 md:p-6 text-slate-900 dark:bg-slate-900 dark:text-slate-100 max-h-[90vh] overflow-y-auto"
+              >
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-blue-500">CRÉER UN CLIENT</span>
+                    <h2 id="create-client-title" className="text-xl font-semibold text-slate-900 dark:text-slate-100">
+                      Nouveau client
+                    </h2>
+                    <p className="max-w-lg text-xs text-slate-500 dark:text-slate-400">
+                      Renseignez les informations essentielles pour enregistrer un nouveau client.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closeCreateClientModal}
+                    className="ml-auto flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                    aria-label="Fermer"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="space-y-3">
+                    <label className="text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400">Type de client</label>
+                    <div className="inline-flex w-full items-center justify-between gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1 text-sm font-semibold dark:border-slate-700 dark:bg-slate-800/80">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCreateClientForm((prev) => ({ ...prev, type: 'company' }));
+                          setCreateClientError(null);
+                        }}
+                        className={clsx(
+                          'flex-1 rounded-lg px-4 py-2 transition focus-visible:outline-none',
+                          createClientForm.type === 'company'
+                            ? 'bg-purple-600 text-white shadow-sm ring-1 ring-purple-700/20 dark:bg-purple-500 dark:ring-purple-400/20'
+                            : 'text-slate-500 hover:text-slate-700 dark:text-slate-300 dark:hover:text-slate-100'
+                        )}
+                      >
+                        Entreprise
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCreateClientForm((prev) => ({ ...prev, type: 'individual', siret: '' }));
+                          setCreateClientError(null);
+                        }}
+                        className={clsx(
+                          'flex-1 rounded-lg px-4 py-2 transition focus-visible:outline-none',
+                          createClientForm.type === 'individual'
+                            ? 'bg-blue-600 text-white shadow-sm ring-1 ring-blue-700/20 dark:bg-blue-500 dark:ring-blue-400/20'
+                            : 'text-slate-500 hover:text-slate-700 dark:text-slate-300 dark:hover:text-slate-100'
+                        )}
+                      >
+                        Particulier
+                      </button>
+                    </div>
+                  </div>
+
+                  {createClientError && (
+                    <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 shadow-sm dark:border-rose-900/50 dark:bg-rose-900/30 dark:text-rose-100">
+                      {createClientError}
+                    </div>
+                  )}
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="md:col-span-2">
+                      <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400" htmlFor="client-name">
+                        {createClientForm.type === 'company' ? 'Raison sociale *' : 'Nom / organisation'}
+                      </label>
+                      <input
+                        id="client-name"
+                        name="companyName"
+                        type="text"
+                        value={createClientForm.companyName}
+                        onChange={(event) => {
+                          setCreateClientForm((prev) => ({ ...prev, companyName: event.target.value }));
+                          setCreateClientError(null);
+                        }}
+                        autoFocus={createClientForm.type === 'company'}
+                        placeholder={
+                          createClientForm.type === 'company' ? 'Ex : WashGo Services' : 'Ex : Jeanne Martin'
+                        }
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        required={createClientForm.type === 'company'}
+                      />
+                    </div>
+                    {createClientForm.type === 'company' && (
+                      <div className="md:col-span-2">
+                        <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400" htmlFor="client-siret">
+                          Numéro SIRET
+                        </label>
+                        <input
+                          id="client-siret"
+                          name="siret"
+                          type="text"
+                          inputMode="numeric"
+                          value={createClientForm.siret}
+                          onChange={(event) => {
+                            setCreateClientForm((prev) => ({ ...prev, siret: event.target.value }));
+                            setCreateClientError(null);
+                          }}
+                          placeholder="123 456 789 00000"
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400" htmlFor="client-first-name">
+                        Prénom {createClientForm.type === 'individual' ? '*' : ''}
+                      </label>
+                      <input
+                        id="client-first-name"
+                        name="contactFirstName"
+                        type="text"
+                        value={createClientForm.contactFirstName}
+                        onChange={(event) => {
+                          setCreateClientForm((prev) => ({ ...prev, contactFirstName: event.target.value }));
+                          setCreateClientError(null);
+                        }}
+                        autoFocus={createClientForm.type === 'individual'}
+                        placeholder="Ex : Jeanne"
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        required={createClientForm.type === 'individual' && !createClientForm.contactLastName}
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400" htmlFor="client-last-name">
+                        Nom {createClientForm.type === 'individual' ? '*' : ''}
+                      </label>
+                      <input
+                        id="client-last-name"
+                        name="contactLastName"
+                        type="text"
+                        value={createClientForm.contactLastName}
+                        onChange={(event) => {
+                          setCreateClientForm((prev) => ({ ...prev, contactLastName: event.target.value }));
+                          setCreateClientError(null);
+                        }}
+                        placeholder="Ex : Martin"
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        required={createClientForm.type === 'individual' && !createClientForm.contactFirstName}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400" htmlFor="client-email">
+                        E-mail
+                      </label>
+                      <input
+                        id="client-email"
+                        name="email"
+                        type="email"
+                        value={createClientForm.email}
+                        onChange={(event) => {
+                          setCreateClientForm((prev) => ({ ...prev, email: event.target.value }));
+                          setCreateClientError(null);
+                        }}
+                        placeholder="contact@entreprise.fr"
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400" htmlFor="client-phone">
+                        Téléphone
+                      </label>
+                      <input
+                        id="client-phone"
+                        name="phone"
+                        type="tel"
+                        value={createClientForm.phone}
+                        onChange={(event) => {
+                          setCreateClientForm((prev) => ({ ...prev, phone: event.target.value }));
+                          setCreateClientError(null);
+                        }}
+                        placeholder="06 12 34 56 78"
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400" htmlFor="client-address">
+                        Adresse
+                      </label>
+                      <input
+                        id="client-address"
+                        name="address"
+                        type="text"
+                        value={createClientForm.address}
+                        onChange={(event) => {
+                          setCreateClientForm((prev) => ({ ...prev, address: event.target.value }));
+                          setCreateClientError(null);
+                        }}
+                        placeholder="12 rue des Lavandières"
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400" htmlFor="client-city">
+                        Ville
+                      </label>
+                      <input
+                        id="client-city"
+                        name="city"
+                        type="text"
+                        value={createClientForm.city}
+                        onChange={(event) => {
+                          setCreateClientForm((prev) => ({ ...prev, city: event.target.value }));
+                          setCreateClientError(null);
+                        }}
+                        placeholder="Paris"
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400" htmlFor="client-tags">
+                      Tags
+                    </label>
+                    <input
+                      id="client-tags"
+                      name="tags"
+                      type="text"
+                      value={createClientForm.tags}
+                      onChange={(event) => {
+                        setCreateClientForm((prev) => ({ ...prev, tags: event.target.value }));
+                        setCreateClientError(null);
+                      }}
+                      placeholder="premium, lavage auto, fidélité"
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                    />
+                    <p className="mt-1 text-[10px] text-slate-400 dark:text-slate-500">Séparez les tags par des virgules.</p>
+                  </div>
+                </div>
+
+                <div className="mt-2 flex flex-wrap items-center justify-end gap-3 border-t border-slate-200 pt-3 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={closeCreateClientModal}
+                    className="rounded-lg border border-slate-200 bg-white px-4 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    type="submit"
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white shadow-lg shadow-blue-600/25 transition hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 dark:bg-blue-500 dark:hover:bg-blue-600"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Créer le client
+                  </button>
+                </div>
+              </form>
             </div>
-            <Button type="button" variant="ghost" size="sm" onClick={cancelImport}>
-              Annuler
-            </Button>
-          </div>
-          <div className="grid gap-4 md:grid-cols-2">
-            {mappingFields.map((field) => (
-              <label key={field.key} className="space-y-1 text-xs text-slate-600">
-                <span>
-                  {field.label}
-                  {field.required ? ' *' : ''}
-                </span>
-                <select
-                  value={importConfig.mapping[field.key] ?? ''}
-                  onChange={(event) =>
-                    setImportConfig((config) =>
-                      config
-                        ? {
-                            ...config,
-                            mapping: {
-                              ...config.mapping,
-                              [field.key]: event.target.value || null,
-                            },
-                          }
-                        : config
-                    )
-                  }
-                  className="w-full rounded-soft border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                >
-                  <option value="">Ignorer</option>
-                  {importConfig.headers.map((header) => (
-                    <option key={header} value={header}>
-                      {header}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ))}
-          </div>
-          <div className="flex items-center justify-end gap-2">
-            <Button type="button" variant="ghost" size="sm" onClick={cancelImport}>
-              Fermer
-            </Button>
-            <Button type="button" size="sm" onClick={applyImport}>
-              Importer
-            </Button>
-          </div>
-        </Card>
-      )}
+          </div>,
+          document.body
+        )}
+
+      {showEditClientModal &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/40 backdrop-blur-md px-4 py-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-client-title"
+            onClick={closeEditClientModal}
+          >
+            <div
+              className="relative w-full max-w-2xl max-h-[90vh] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl ring-1 ring-slate-900/10 transition dark:border-slate-700 dark:bg-slate-900"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <form
+                onSubmit={handleSubmitEditClient}
+                className="flex flex-col gap-4 bg-white p-4 md:p-6 text-slate-900 dark:bg-slate-900 dark:text-slate-100 max-h-[90vh] overflow-y-auto"
+              >
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-blue-500">
+                      MODIFIER UN CLIENT
+                    </span>
+                    <h2 id="edit-client-title" className="text-xl font-semibold text-slate-900 dark:text-slate-100">
+                      {editClientForm.companyName || `${editClientForm.contactFirstName} ${editClientForm.contactLastName}`.trim() || 'Client'}
+                    </h2>
+                    <p className="max-w-lg text-xs text-slate-500 dark:text-slate-400">
+                      Mettez à jour les informations du client. Les modifications seront enregistrées immédiatement.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closeEditClientModal}
+                    className="ml-auto flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                    aria-label="Fermer"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="space-y-3">
+                    <label className="text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400">Type de client</label>
+                    <div className="inline-flex w-full items-center justify-between gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1 text-sm font-semibold dark:border-slate-700 dark:bg-slate-800/80">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditClientForm((prev) => ({ ...prev, type: 'company' }));
+                          setEditClientError(null);
+                        }}
+                        className={clsx(
+                          'flex-1 rounded-lg px-4 py-2 transition focus-visible:outline-none',
+                          editClientForm.type === 'company'
+                            ? 'bg-purple-600 text-white shadow-sm ring-1 ring-purple-700/20 dark:bg-purple-500 dark:ring-purple-400/20'
+                            : 'text-slate-500 hover:text-slate-700 dark:text-slate-300 dark:hover:text-slate-100'
+                        )}
+                      >
+                        Entreprise
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditClientForm((prev) => ({ ...prev, type: 'individual', siret: '' }));
+                          setEditClientError(null);
+                        }}
+                        className={clsx(
+                          'flex-1 rounded-lg px-4 py-2 transition focus-visible:outline-none',
+                          editClientForm.type === 'individual'
+                            ? 'bg-blue-600 text-white shadow-sm ring-1 ring-blue-700/20 dark:bg-blue-500 dark:ring-blue-400/20'
+                            : 'text-slate-500 hover:text-slate-700 dark:text-slate-300 dark:hover:text-slate-100'
+                        )}
+                      >
+                        Particulier
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <label className="text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400">Statut</label>
+                    <div className="inline-flex w-full items-center justify-between gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1 text-sm font-semibold dark:border-slate-700 dark:bg-slate-800/80">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditClientForm((prev) => ({ ...prev, status: 'Actif' }));
+                          setEditClientError(null);
+                        }}
+                        className={clsx(
+                          'flex-1 rounded-lg px-4 py-2 transition focus-visible:outline-none',
+                          editClientForm.status === 'Actif'
+                            ? 'bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-700/20 dark:bg-emerald-500 dark:ring-emerald-400/20'
+                            : 'text-slate-500 hover:text-slate-700 dark:text-slate-300 dark:hover:text-slate-100'
+                        )}
+                      >
+                        Actif
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditClientForm((prev) => ({ ...prev, status: 'Prospect' }));
+                          setEditClientError(null);
+                        }}
+                        className={clsx(
+                          'flex-1 rounded-lg px-4 py-2 transition focus-visible:outline-none',
+                          editClientForm.status === 'Prospect'
+                            ? 'bg-blue-600 text-white shadow-sm ring-1 ring-blue-700/20 dark:bg-blue-500 dark:ring-blue-400/20'
+                            : 'text-slate-500 hover:text-slate-700 dark:text-slate-300 dark:hover:text-slate-100'
+                        )}
+                      >
+                        Prospect
+                      </button>
+                    </div>
+                  </div>
+
+                  {editClientError && (
+                    <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 shadow-sm dark:border-rose-900/50 dark:bg-rose-900/30 dark:text-rose-100">
+                      {editClientError}
+                    </div>
+                  )}
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="md:col-span-2">
+                      <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400" htmlFor="edit-client-name">
+                        {editClientForm.type === 'company' ? 'Raison sociale *' : 'Nom / organisation'}
+                      </label>
+                      <input
+                        id="edit-client-name"
+                        name="companyName"
+                        type="text"
+                        value={editClientForm.companyName}
+                        onChange={(event) => {
+                          setEditClientForm((prev) => ({ ...prev, companyName: event.target.value }));
+                          setEditClientError(null);
+                        }}
+                        placeholder={
+                          editClientForm.type === 'company' ? 'Ex : WashGo Services' : 'Ex : Jeanne Martin'
+                        }
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        required={editClientForm.type === 'company'}
+                      />
+                    </div>
+                    {editClientForm.type === 'company' && (
+                      <div className="md:col-span-2">
+                        <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400" htmlFor="edit-client-siret">
+                          Numéro SIRET
+                        </label>
+                        <input
+                          id="edit-client-siret"
+                          name="siret"
+                          type="text"
+                          inputMode="numeric"
+                          value={editClientForm.siret}
+                          onChange={(event) => {
+                            setEditClientForm((prev) => ({ ...prev, siret: event.target.value }));
+                            setEditClientError(null);
+                          }}
+                          placeholder="123 456 789 00000"
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400" htmlFor="edit-client-first-name">
+                        Prénom {editClientForm.type === 'individual' ? '*' : ''}
+                      </label>
+                      <input
+                        id="edit-client-first-name"
+                        name="contactFirstName"
+                        type="text"
+                        value={editClientForm.contactFirstName}
+                        onChange={(event) => {
+                          setEditClientForm((prev) => ({ ...prev, contactFirstName: event.target.value }));
+                          setEditClientError(null);
+                        }}
+                        placeholder="Ex : Jeanne"
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        required={editClientForm.type === 'individual' && !editClientForm.contactLastName}
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400" htmlFor="edit-client-last-name">
+                        Nom {editClientForm.type === 'individual' ? '*' : ''}
+                      </label>
+                      <input
+                        id="edit-client-last-name"
+                        name="contactLastName"
+                        type="text"
+                        value={editClientForm.contactLastName}
+                        onChange={(event) => {
+                          setEditClientForm((prev) => ({ ...prev, contactLastName: event.target.value }));
+                          setEditClientError(null);
+                        }}
+                        placeholder="Ex : Martin"
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        required={editClientForm.type === 'individual' && !editClientForm.contactFirstName}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400" htmlFor="edit-client-email">
+                        E-mail
+                      </label>
+                      <input
+                        id="edit-client-email"
+                        name="email"
+                        type="email"
+                        value={editClientForm.email}
+                        onChange={(event) => {
+                          setEditClientForm((prev) => ({ ...prev, email: event.target.value }));
+                          setEditClientError(null);
+                        }}
+                        placeholder="contact@entreprise.fr"
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400" htmlFor="edit-client-phone">
+                        Téléphone
+                      </label>
+                      <input
+                        id="edit-client-phone"
+                        name="phone"
+                        type="tel"
+                        value={editClientForm.phone}
+                        onChange={(event) => {
+                          setEditClientForm((prev) => ({ ...prev, phone: event.target.value }));
+                          setEditClientError(null);
+                        }}
+                        placeholder="06 12 34 56 78"
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400" htmlFor="edit-client-address">
+                        Adresse
+                      </label>
+                      <input
+                        id="edit-client-address"
+                        name="address"
+                        type="text"
+                        value={editClientForm.address}
+                        onChange={(event) => {
+                          setEditClientForm((prev) => ({ ...prev, address: event.target.value }));
+                          setEditClientError(null);
+                        }}
+                        placeholder="12 rue des Lavandières"
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400" htmlFor="edit-client-city">
+                        Ville
+                      </label>
+                      <input
+                        id="edit-client-city"
+                        name="city"
+                        type="text"
+                        value={editClientForm.city}
+                        onChange={(event) => {
+                          setEditClientForm((prev) => ({ ...prev, city: event.target.value }));
+                          setEditClientError(null);
+                        }}
+                        placeholder="Paris"
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400" htmlFor="edit-client-tags">
+                      Tags
+                    </label>
+                    <input
+                      id="edit-client-tags"
+                      name="tags"
+                      type="text"
+                      value={editClientForm.tags}
+                      onChange={(event) => {
+                        setEditClientForm((prev) => ({ ...prev, tags: event.target.value }));
+                        setEditClientError(null);
+                      }}
+                      placeholder="premium, lavage auto, fidélité"
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                    />
+                    <p className="mt-1 text-[10px] text-slate-400 dark:text-slate-500">Séparez les tags par des virgules.</p>
+                  </div>
+                </div>
+
+                <div className="mt-2 flex flex-wrap items-center justify-end gap-3 border-t border-slate-200 pt-3 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={closeEditClientModal}
+                    className="rounded-lg border border-slate-200 bg-white px-4 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    type="submit"
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white shadow-lg shadow-blue-600/25 transition hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 dark:bg-blue-500 dark:hover:bg-blue-600"
+                  >
+                    <Edit2 className="h-4 w-4" />
+                    Enregistrer les modifications
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 };
 
 export default ClientsPage;
+
