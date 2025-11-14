@@ -1,0 +1,70 @@
+version: '3.8'
+
+# Docker Compose pour le développement local
+# Utilise les volumes pour le hot-reload
+
+services:
+  # Base de données PostgreSQL pour le développement
+  postgres:
+    image: postgres:16-alpine
+    container_name: erp_postgres_dev
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-erp_washgo_dev}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - erp_dev_network
+
+  # Backend FastAPI avec hot-reload
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: erp_backend_dev
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-erp_washgo_dev}
+      DB_DIALECT: postgresql
+      ENABLE_DEBUG_ROUTES: ${ENABLE_DEBUG_ROUTES:-true}
+      PYTHONUNBUFFERED: 1
+    ports:
+      - "8000:8000"
+    volumes:
+      # Volume pour le hot-reload du code
+      - ./app:/app/app
+      - ./alembic:/app/alembic
+      - backend_dev_logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - erp_dev_network
+    command: >
+      sh -c "
+        echo 'Attente de la base de données...' &&
+        sleep 5 &&
+        alembic upgrade head &&
+        uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+      "
+
+volumes:
+  postgres_dev_data:
+    driver: local
+  backend_dev_logs:
+    driver: local
+
+networks:
+  erp_dev_network:
+    driver: bridge
+

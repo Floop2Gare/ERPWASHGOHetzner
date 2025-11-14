@@ -1,36 +1,105 @@
 version: '3.8'
 
-# Configuration de production pour Docker Compose
-# Utilisation: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
-
 services:
-  backend:
-    # En production, on peut limiter les ressources
-    deploy:
-      resources:
-        limits:
-          cpus: '2'
-          memory: 1G
-        reservations:
-          cpus: '0.5'
-          memory: 512M
-    # Ne pas exposer le port backend publiquement en production
-    # Il sera accessible via Nginx uniquement
-    ports:
-      - "127.0.0.1:8000:8000"
-
+  # Base de données PostgreSQL avec persistance
   postgres:
-    # Limites de ressources pour PostgreSQL
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 256M
-    # Backup automatique (optionnel - à configurer)
-    # volumes:
-    #   - postgres_data:/var/lib/postgresql/data
-    #   - ./backups:/backups
+    image: postgres:16-alpine
+    container_name: erp_postgres_prod
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-erp_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_secure_password}
+      POSTGRES_DB: ${POSTGRES_DB:-erp_washgo}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      # Volume persistant pour les données PostgreSQL
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-erp_user}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - erp_network
+    # Optimisations pour la production
+    command: >
+      postgres
+      -c shared_buffers=256MB
+      -c max_connections=200
+      -c effective_cache_size=1GB
+      -c maintenance_work_mem=64MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c default_statistics_target=100
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c work_mem=4MB
+      -c min_wal_size=1GB
+      -c max_wal_size=4GB
 
+  # Backend FastAPI
+  backend:
+    build:
+      context: ./BACK-END-ERP
+      dockerfile: Dockerfile
+    container_name: erp_backend_prod
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-erp_user}:${POSTGRES_PASSWORD:-change_me_secure_password}@postgres:5432/${POSTGRES_DB:-erp_washgo}
+      DB_DIALECT: postgresql
+      ENABLE_DEBUG_ROUTES: ${ENABLE_DEBUG_ROUTES:-false}
+      PYTHONUNBUFFERED: 1
+      PYTHONDONTWRITEBYTECODE: 1
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      # Volume pour les logs (optionnel)
+      - backend_logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - erp_network
+    # Commandes pour appliquer les migrations et démarrer le serveur
+    command: >
+      sh -c "
+        echo 'Attente de la base de données...' &&
+        sleep 5 &&
+        alembic upgrade head &&
+        uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+      "
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Frontend (optionnel - peut être servi via Nginx sur le serveur)
+  # Décommentez si vous voulez servir le frontend via Docker
+  # frontend:
+  #   build:
+  #     context: ./FRONT-END-ERP
+  #     dockerfile: Dockerfile
+  #   container_name: erp_frontend_prod
+  #   ports:
+  #     - "${FRONTEND_PORT:-5173}:80"
+  #   depends_on:
+  #     - backend
+  #   restart: unless-stopped
+  #   networks:
+  #     - erp_network
+
+volumes:
+  # Volume persistant pour PostgreSQL - les données seront sauvegardées ici
+  postgres_data:
+    driver: local
+  # Volume pour les logs backend
+  backend_logs:
+    driver: local
+
+networks:
+  erp_network:
+    driver: bridge

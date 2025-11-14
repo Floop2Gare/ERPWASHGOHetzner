@@ -12,10 +12,15 @@ from fastapi import HTTPException, status
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
-    # Fallback explicite pour éviter un crash si non configuré
-    # L’intégration Postgres doit fournir cette variable en prod.
+    # Fallback pour développement local avec Docker
+    # Utilise les credentials du conteneur PostgreSQL Docker
+    POSTGRES_USER = os.getenv("POSTGRES_USER", "erp_user")
+    POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "change_me_secure_password")
+    POSTGRES_DB = os.getenv("POSTGRES_DB", "erp_washgo")
+    POSTGRES_HOST = os.getenv("POSTGRES_HOST", "localhost")
+    POSTGRES_PORT = os.getenv("POSTGRES_PORT", "5432")
     # Driver par défaut: psycopg v3 (binaire) pour compatibilité Python >= 3.13
-    DATABASE_URL = "postgresql+psycopg://postgres:postgres@localhost:5432/postgres"
+    DATABASE_URL = f"postgresql+psycopg://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
 
 engine = create_engine(
     DATABASE_URL,

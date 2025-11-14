@@ -57,7 +57,7 @@ services:
   # Décommentez si vous voulez servir le frontend via Docker
   # frontend:
   #   build:
-  #     context: ./FRONT-END-ERP/FRONT-END-ERP
+  #     context: ./FRONT-END-ERP
   #     dockerfile: Dockerfile
   #   container_name: erp_frontend
   #   ports:

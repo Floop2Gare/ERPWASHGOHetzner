@@ -6,7 +6,7 @@ server {
     server_name votre-domaine.tld;  # À remplacer
 
     # Frontend (build Vite)
-    root /srv/erp/FRONT-END-ERP/FRONT-END-ERP/dist;
+    root /srv/erp/FRONT-END-ERP/dist;
     index index.html;
 
     location /api/ {

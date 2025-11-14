@@ -5,7 +5,7 @@ Ce dépôt regroupe le front-end (Vite/React/TS) et le back-end (FastAPI/Python)
 ## Structure
 
 - `BACK-END-ERP/` — API FastAPI (Python)
-- `FRONT-END-ERP/FRONT-END-ERP/` — Front Vite React
+- `FRONT-END-ERP/` — Front Vite React
 
 ## Prérequis
 

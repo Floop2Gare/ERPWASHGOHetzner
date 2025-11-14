@@ -5,7 +5,7 @@
 
 # Variables
 BACKEND_DIR = BACK-END-ERP
-FRONTEND_DIR = FRONT-END-ERP/FRONT-END-ERP
+FRONTEND_DIR = FRONT-END-ERP
 PYTHON = $(BACKEND_DIR)/venv/Scripts/python.exe
 PIP = $(BACKEND_DIR)/venv/Scripts/pip.exe
 UVICORN = $(BACKEND_DIR)/venv/Scripts/uvicorn.exe
