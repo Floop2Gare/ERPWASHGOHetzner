@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   FileText, 
@@ -652,29 +652,40 @@ const MobileDevisPage: React.FC = () => {
   }, [step2SelectedServiceId]);
 
   // Gérer le paramètre ?create=true pour ouvrir automatiquement le modal de création
+  const createParamProcessedRef = useRef(false);
   useEffect(() => {
     const createParam = searchParams.get('create');
     console.log('🔵 [MobileDevisPage] useEffect createParam:', {
       createParam,
       showCreateModal,
-      shouldOpen: createParam === 'true' && !showCreateModal
+      locationSearch: location.search,
+      shouldOpen: createParam === 'true' && !showCreateModal && !createParamProcessedRef.current
     });
-    if (createParam === 'true' && !showCreateModal) {
+    
+    if (createParam === 'true' && !showCreateModal && !createParamProcessedRef.current) {
+      createParamProcessedRef.current = true; // Empêcher le retraitement
       console.log('🔴 [MobileDevisPage] Ouverture du modal de création...');
       openCreateModal().then(() => {
         console.log('✅ [MobileDevisPage] Modal de création ouvert');
+        // Nettoyer le paramètre de l'URL après ouverture
+        setTimeout(() => {
+          const newParams = new URLSearchParams(searchParams);
+          newParams.delete('create');
+          setSearchParams(newParams, { replace: true });
+          createParamProcessedRef.current = false; // Réinitialiser après nettoyage
+        }, 100);
       }).catch((error) => {
         console.error('❌ [MobileDevisPage] Erreur lors de l\'ouverture du modal:', error);
+        createParamProcessedRef.current = false; // Réinitialiser en cas d'erreur
       });
-      // Nettoyer le paramètre de l'URL après un court délai pour laisser le temps au modal de s'ouvrir
-      setTimeout(() => {
-        const newParams = new URLSearchParams(searchParams);
-        newParams.delete('create');
-        setSearchParams(newParams, { replace: true });
-      }, 100);
+    }
+    
+    // Réinitialiser le flag si le paramètre n'est plus dans l'URL
+    if (!createParam) {
+      createParamProcessedRef.current = false;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams, showCreateModal]);
+  }, [location.search, showCreateModal]);
 
   const handleCreateQuote = async (e: React.FormEvent) => {
     e.preventDefault();

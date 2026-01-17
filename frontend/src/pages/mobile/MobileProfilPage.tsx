@@ -484,7 +484,10 @@ const MobileProfilPage: React.FC = () => {
       {/* Actions rapides */}
       <div style={{ marginTop: 'var(--space-2xl)', marginBottom: 'var(--space-xl)' }}>
         <button
-          onClick={() => navigate('/mobile/devis?create=true')}
+          onClick={() => {
+            // Utiliser navigate avec state pour forcer le re-render même si on est déjà sur la route
+            navigate('/mobile/devis?create=true', { replace: false, state: { forceOpenCreate: true } });
+          }}
           className="btn-base btn-primary"
           style={{
             width: '100%',
