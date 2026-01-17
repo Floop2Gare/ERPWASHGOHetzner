@@ -155,6 +155,8 @@ const MobileDevisPage: React.FC = () => {
   const hasLoadedRef = useRef(false);
   const servicesLoadedRef = useRef(false);
   const categoriesLoadedRef = useRef(false);
+  const engagementIdProcessedRef = useRef<string | null>(null);
+  const step2DataLoadedRef = useRef(false);
 
   // Calculer vatMultiplier exactement comme DevisPage.tsx
   const vatMultiplier = useMemo(() => {
@@ -201,7 +203,6 @@ const MobileDevisPage: React.FC = () => {
 
   // Gérer le paramètre engagementId de l'URL pour ouvrir automatiquement la fiche du devis
   // Utiliser un ref pour éviter les re-renders infinis (comme MobileClientsPage)
-  const engagementIdProcessedRef = useRef<string | null>(null);
   useEffect(() => {
     const engagementIdFromUrl = searchParams.get('engagementId');
     
@@ -595,8 +596,11 @@ const MobileDevisPage: React.FC = () => {
   };
 
   // S'assurer que les services et catégories sont chargés quand on arrive à l'étape 2
+  // Protection avec ref pour éviter les chargements multiples (comme MobileClientsPage)
   React.useEffect(() => {
-    if (currentStep === 2 && showCreateModal) {
+    // Ne charger qu'une seule fois quand on arrive à l'étape 2
+    if (currentStep === 2 && showCreateModal && !step2DataLoadedRef.current) {
+      step2DataLoadedRef.current = true;
       const loadDataForStep2 = async () => {
         const currentState = useAppData.getState();
         const currentServices = currentState.services || [];
@@ -619,6 +623,11 @@ const MobileDevisPage: React.FC = () => {
         }
       };
       loadDataForStep2();
+    }
+    
+    // Réinitialiser le ref quand on ferme le modal ou qu'on change d'étape
+    if (!showCreateModal || currentStep !== 2) {
+      step2DataLoadedRef.current = false;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentStep, showCreateModal, activeCompanyId]);
