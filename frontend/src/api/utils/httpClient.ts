@@ -163,13 +163,16 @@ async function request<T = any>(
     const token = getAuthToken();
 
     const authHeaders: Record<string, string> = {};
-    if (token && token.trim() && !headers.Authorization) {
+    // Ne PAS envoyer de token pour les endpoints d'authentification
+    if (token && token.trim() && !headers.Authorization && !isAuthEndpoint) {
       authHeaders.Authorization = `Bearer ${token.trim()}`;
       console.log(`[httpClient] Token ajouté pour ${method} ${url} (longueur: ${token.length})`);
     } else if (!token && !isAuthEndpoint && !url.includes('/health')) {
       console.warn(`[httpClient] Pas de token pour ${method} ${url}`);
     } else if (token && !token.trim()) {
       console.warn(`[httpClient] Token vide pour ${method} ${url}`);
+    } else if (isAuthEndpoint && token) {
+      console.log(`[httpClient] Token ignoré pour ${method} ${url} (endpoint d'authentification)`);
     }
     
     // Ajouter l'ID de l'entreprise active dans les headers
