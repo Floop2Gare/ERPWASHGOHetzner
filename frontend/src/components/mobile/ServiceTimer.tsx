@@ -34,6 +34,8 @@ const ServiceTimer: React.FC<ServiceTimerProps> = ({
   const timer = useTimer(0);
   const [hasStarted, setHasStarted] = React.useState(false);
   const [comment, setComment] = React.useState('');
+  const [majoration, setMajoration] = React.useState('');
+  const [pourboire, setPourboire] = React.useState('');
   const [showCommentModal, setShowCommentModal] = React.useState(false);
 
   const handleStart = async () => {
@@ -63,6 +65,8 @@ const ServiceTimer: React.FC<ServiceTimerProps> = ({
   const handleSave = () => {
     const durationMinutes = Math.floor(timer.elapsedSeconds / 60);
     const finalComment = comment.trim() || undefined;
+    const majorationValue = majoration.trim() ? parseFloat(majoration.trim().replace(',', '.')) : undefined;
+    const pourboireValue = pourboire.trim() ? parseFloat(pourboire.trim().replace(',', '.')) : undefined;
     console.log('💾 [ServiceTimer] ========== ENREGISTREMENT ==========');
     console.log('💾 [ServiceTimer] Données à enregistrer:', {
       engagementId: engagement.id,
@@ -70,11 +74,15 @@ const ServiceTimer: React.FC<ServiceTimerProps> = ({
       hasComment: !!finalComment,
       commentLength: finalComment?.length || 0,
       commentPreview: finalComment ? finalComment.substring(0, 50) + '...' : 'aucun',
+      majoration: majorationValue,
+      pourboire: pourboireValue,
     });
-    onStop(durationMinutes, finalComment);
+    onStop(durationMinutes, finalComment, majorationValue, pourboireValue);
     console.log('💾 [ServiceTimer] onStop appelé');
     setShowCommentModal(false);
     setComment('');
+    setMajoration('');
+    setPourboire('');
     console.log('💾 [ServiceTimer] ========== FIN ENREGISTREMENT ==========');
   };
 
@@ -258,8 +266,80 @@ const ServiceTimer: React.FC<ServiceTimerProps> = ({
                     fontFamily: 'inherit',
                     resize: 'vertical',
                   }}
-                  autoFocus
                 />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+                <div>
+                  <label
+                    htmlFor="stop-majoration"
+                    style={{
+                      display: 'block',
+                      marginBottom: '8px',
+                      fontSize: '12px',
+                      fontWeight: '600',
+                      color: 'var(--text)',
+                    }}
+                  >
+                    Majoration (€)
+                  </label>
+                  <input
+                    id="stop-majoration"
+                    type="text"
+                    inputMode="decimal"
+                    value={majoration}
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/[^0-9,.-]/g, '');
+                      setMajoration(value);
+                    }}
+                    placeholder="0.00"
+                    style={{
+                      width: '100%',
+                      padding: '12px',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--border)',
+                      background: 'var(--bg)',
+                      color: 'var(--text)',
+                      fontSize: '14px',
+                      fontFamily: 'inherit',
+                    }}
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor="stop-pourboire"
+                    style={{
+                      display: 'block',
+                      marginBottom: '8px',
+                      fontSize: '12px',
+                      fontWeight: '600',
+                      color: 'var(--text)',
+                    }}
+                  >
+                    Pourboire (€)
+                  </label>
+                  <input
+                    id="stop-pourboire"
+                    type="text"
+                    inputMode="decimal"
+                    value={pourboire}
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/[^0-9,.-]/g, '');
+                      setPourboire(value);
+                    }}
+                    placeholder="0.00"
+                    style={{
+                      width: '100%',
+                      padding: '12px',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--border)',
+                      background: 'var(--bg)',
+                      color: 'var(--text)',
+                      fontSize: '14px',
+                      fontFamily: 'inherit',
+                    }}
+                  />
+                </div>
               </div>
 
               <div style={{ display: 'flex', gap: '12px' }}>

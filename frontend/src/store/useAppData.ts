@@ -143,6 +143,8 @@ export type Engagement = {
   optionOverrides?: Record<string, EngagementOptionOverride>;
   mobileDurationMinutes?: number | null;
   mobileCompletionComment?: string | null;
+  mobileMajoration?: number | null; // Majoration saisie sur mobile (en euros)
+  mobilePourboire?: number | null; // Pourboire saisie sur mobile (en euros)
   // Planning
   planningUser?: string | null; // 'clement', 'adrien', ou null pour tous
   startTime?: string; // Heure de début (ex: "09:00")

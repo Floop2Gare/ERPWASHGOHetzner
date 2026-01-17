@@ -158,7 +158,7 @@ const MobilePrestationsPage: React.FC = () => {
   // État pour proposer la prestation suivante
   const [showNextServicePrompt, setShowNextServicePrompt] = useState<{ engagement: Engagement; nextIndex: number } | null>(null);
   // État pour le commentaire global à la fin
-  const [showGlobalCommentModal, setShowGlobalCommentModal] = useState<{ engagement: Engagement; completedServices: Map<number, { duration: number; comment?: string }> } | null>(null);
+  const [showGlobalCommentModal, setShowGlobalCommentModal] = useState<{ engagement: Engagement; completedServices: Map<number, { duration: number; comment?: string; majoration?: number; pourboire?: number }> } | null>(null);
   const [globalComment, setGlobalComment] = useState('');
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [datePickerValue, setDatePickerValue] = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -636,6 +636,8 @@ const MobilePrestationsPage: React.FC = () => {
               startTime: appointment.start_time || appointment.startTime || null,
               mobileDurationMinutes: appointment.mobile_duration_minutes ?? appointment.mobileDurationMinutes ?? null,
               mobileCompletionComment: appointment.mobile_completion_comment || appointment.mobileCompletionComment || null,
+              mobileMajoration: appointment.mobile_majoration ?? appointment.mobileMajoration ?? null,
+              mobilePourboire: appointment.mobile_pourboire ?? appointment.mobilePourboire ?? null,
               services: appointment.services || undefined,
               // Inclure les catégories si disponibles
               ...(appointment.main_category_id && { mainCategoryId: appointment.main_category_id }),
@@ -826,7 +828,7 @@ const MobilePrestationsPage: React.FC = () => {
     setActiveTimer(tempEngagement);
   };
 
-  const handleStopTimer = (engagementId: string, durationMinutes: number, comment?: string) => {
+  const handleStopTimer = (engagementId: string, durationMinutes: number, comment?: string, majoration?: number, pourboire?: number) => {
     console.log('⏹️ [MobilePrestations] ========== ARRÊT TIMER ==========');
     console.log('⏹️ [MobilePrestations] Paramètres:', {
       engagementId,
@@ -859,8 +861,8 @@ const MobilePrestationsPage: React.FC = () => {
       });
       
       // Stocker les informations de cette prestation terminée
-      const completedData = completedServicesForQuote.get(parentId) || new Map<number, { duration: number; comment?: string }>();
-      completedData.set(serviceIndex, { duration: durationMinutes, comment });
+      const completedData = completedServicesForQuote.get(parentId) || new Map<number, { duration: number; comment?: string; majoration?: number; pourboire?: number }>();
+      completedData.set(serviceIndex, { duration: durationMinutes, comment, majoration, pourboire });
       console.log('⏹️ [MobilePrestations] Données complétées stockées:', {
         serviceIndex,
         duration: durationMinutes,
@@ -901,6 +903,8 @@ const MobilePrestationsPage: React.FC = () => {
           quoteName: (parentEngagement as any).quoteName || null,
           mobileDurationMinutes: durationMinutes,
           mobileCompletionComment: comment || null,
+          mobileMajoration: majoration ?? null,
+          mobilePourboire: pourboire ?? null,
         } as any;
         
         addEngagement(serviceEngagementPayload);
@@ -944,6 +948,8 @@ const MobilePrestationsPage: React.FC = () => {
       updateEngagement(engagementId, {
         mobileDurationMinutes: durationMinutes,
         mobileCompletionComment: comment || null,
+        mobileMajoration: majoration ?? null,
+        mobilePourboire: pourboire ?? null,
         status: 'réalisé',
         kind: 'service',
       });
@@ -958,7 +964,7 @@ const MobilePrestationsPage: React.FC = () => {
   };
 
   // Créer les services dans la page Prestations quand toutes les prestations d'un devis sont terminées
-  const createServicesFromQuote = async (quoteEngagement: Engagement, completedServices: Map<number, { duration: number; comment?: string }>, globalComment?: string) => {
+  const createServicesFromQuote = async (quoteEngagement: Engagement, completedServices: Map<number, { duration: number; comment?: string; majoration?: number; pourboire?: number }>, globalComment?: string) => {
     console.log('🚀 [MobilePrestations] ========== DÉBUT createServicesFromQuote ==========');
     console.log('🚀 [MobilePrestations] Devis parent:', {
       id: quoteEngagement.id,
@@ -1039,6 +1045,8 @@ const MobilePrestationsPage: React.FC = () => {
           // Utiliser les informations de durée et commentaire de cette prestation
           mobileDurationMinutes: completionData.duration,
           mobileCompletionComment: finalComment || null,
+          mobileMajoration: completionData.majoration ?? null,
+          mobilePourboire: completionData.pourboire ?? null,
           // Conserver les informations de catégories si disponibles
           ...(serviceItem.mainCategoryId && { mainCategoryId: serviceItem.mainCategoryId }),
           ...(serviceItem.subCategoryId && { subCategoryId: serviceItem.subCategoryId }),
@@ -1091,6 +1099,8 @@ const MobilePrestationsPage: React.FC = () => {
             planning_user: newServiceEngagement.planningUser || null,
             mobile_duration_minutes: newServiceEngagement.mobileDurationMinutes ?? null,
             mobile_completion_comment: newServiceEngagement.mobileCompletionComment || null,
+            mobile_majoration: newServiceEngagement.mobileMajoration ?? null,
+            mobile_pourboire: newServiceEngagement.mobilePourboire ?? null,
             send_history: newServiceEngagement.sendHistory || [],
             // Inclure les catégories si disponibles
             ...((newServiceEngagement as any).mainCategoryId && { main_category_id: (newServiceEngagement as any).mainCategoryId }),
@@ -2659,7 +2669,7 @@ const MobilePrestationsPage: React.FC = () => {
 
                             {/* Durée réelle (si complété) */}
                             {isCompleted && eng.mobileDurationMinutes && (
-                              <div className="info-row" style={{ padding: 'var(--space-xs) 0', borderBottom: eng.mobileCompletionComment ? '1px solid rgba(var(--border-rgb), 0.04)' : 'none' }}>
+                              <div className="info-row" style={{ padding: 'var(--space-xs) 0', borderBottom: (eng.mobileCompletionComment || eng.mobileMajoration || eng.mobilePourboire) ? '1px solid rgba(var(--border-rgb), 0.04)' : 'none' }}>
                                 <div className="info-row-icon" style={{ width: '32px', height: '32px', borderRadius: 'var(--radius-sm)', background: 'rgba(var(--accent-rgb), 0.1)' }}>
                                   <CheckCircle style={{ fontSize: '18px', color: 'var(--accent)' }} />
                                 </div>
@@ -2674,7 +2684,7 @@ const MobilePrestationsPage: React.FC = () => {
 
                             {/* Commentaire (si complété) */}
                             {isCompleted && eng.mobileCompletionComment && (
-                              <div className="info-row" style={{ padding: 'var(--space-xs) 0', borderBottom: 'none' }}>
+                              <div className="info-row" style={{ padding: 'var(--space-xs) 0', borderBottom: (eng.mobileMajoration || eng.mobilePourboire) ? '1px solid rgba(var(--border-rgb), 0.04)' : 'none' }}>
                                 <div className="info-row-icon" style={{ width: '32px', height: '32px', borderRadius: 'var(--radius-sm)', background: 'rgba(var(--accent-rgb), 0.1)' }}>
                                   <Description style={{ fontSize: '18px', color: 'var(--accent)' }} />
                                 </div>
@@ -2683,6 +2693,30 @@ const MobilePrestationsPage: React.FC = () => {
                                   <span className="info-row-value" style={{ fontSize: '14px', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                                     {eng.mobileCompletionComment}
                                   </span>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Majoration et Pourboire (si complété) */}
+                            {isCompleted && (eng.mobileMajoration || eng.mobilePourboire) && (
+                              <div className="info-row" style={{ padding: 'var(--space-xs) 0', borderBottom: 'none' }}>
+                                <div className="info-row-icon" style={{ width: '32px', height: '32px', borderRadius: 'var(--radius-sm)', background: 'rgba(var(--accent-rgb), 0.1)' }}>
+                                  <AttachMoney style={{ fontSize: '18px', color: 'var(--accent)' }} />
+                                </div>
+                                <div className="info-row-content" style={{ gap: 'var(--space-2xs)', flex: 1 }}>
+                                  <span className="info-row-label" style={{ fontSize: '12px', fontWeight: '500' }}>Majoration / Pourboire</span>
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                    {eng.mobileMajoration && eng.mobileMajoration > 0 && (
+                                      <span className="info-row-value" style={{ fontSize: '14px' }}>
+                                        Majoration : {formatCurrency(eng.mobileMajoration)}
+                                      </span>
+                                    )}
+                                    {eng.mobilePourboire && eng.mobilePourboire > 0 && (
+                                      <span className="info-row-value" style={{ fontSize: '14px' }}>
+                                        Pourboire : {formatCurrency(eng.mobilePourboire)}
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
                             )}
@@ -2928,7 +2962,7 @@ const MobilePrestationsPage: React.FC = () => {
             serviceName={serviceDetails?.serviceName || getServiceName(activeTimer)}
             clientName={getClientName(activeTimer.clientId)}
             serviceDetails={serviceDetails}
-            onStop={(durationMinutes, comment) => handleStopTimer(activeTimer.id, durationMinutes, comment)}
+            onStop={(durationMinutes, comment, majoration, pourboire) => handleStopTimer(activeTimer.id, durationMinutes, comment, majoration, pourboire)}
             onCancel={() => setActiveTimer(null)}
           />
         );
