@@ -782,11 +782,21 @@ const buildCompanyStateFromBackend = (
   state: AppState,
   backendCompanies: any[]
 ): Partial<AppState> => {
+  console.log('🟡🟡🟡 [buildCompanyStateFromBackend] DÉBUT');
+  console.log('🟡🟡🟡 [buildCompanyStateFromBackend] backendCompanies reçues:', backendCompanies);
+  console.log('🟡🟡🟡 [buildCompanyStateFromBackend] Nombre d\'entreprises:', backendCompanies.length);
+  console.log('🟡🟡🟡 [buildCompanyStateFromBackend] State actuel - companies:', state.companies);
+  console.log('🟡🟡🟡 [buildCompanyStateFromBackend] State actuel - activeCompanyId:', state.activeCompanyId);
+  
   const mapped = backendCompanies.map(mapApiCompanyToStoreCompany);
+  console.log('🟡🟡🟡 [buildCompanyStateFromBackend] Entreprises mappées:', mapped);
+  
   const nextActive =
     state.activeCompanyId && mapped.some((company) => company.id === state.activeCompanyId)
       ? state.activeCompanyId
       : mapped.find((company) => company.isDefault)?.id ?? mapped[0]?.id ?? null;
+  console.log('🟡🟡🟡 [buildCompanyStateFromBackend] nextActive:', nextActive);
+  
   const nextVatEnabled = nextActive
     ? mapped.find((company) => company.id === nextActive)?.vatEnabled ?? state.vatEnabled
     : true;
@@ -796,12 +806,20 @@ const buildCompanyStateFromBackend = (
     perCompany: buildVatPerCompanyMap(mapped),
   });
 
-  return {
+  const finalState = {
     companies: mapped,
     activeCompanyId: nextActive,
     vatEnabled: nextVatEnabled,
   };
+  
+  console.log('🟡🟡🟡 [buildCompanyStateFromBackend] ÉTAT FINAL retourné:', finalState);
+  console.log('🟡🟡🟡 [buildCompanyStateFromBackend] Nombre d\'entreprises dans finalState:', finalState.companies.length);
+  console.log('🟡🟡🟡 [buildCompanyStateFromBackend] FIN');
+  
+  return finalState;
 };
+<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>
+run_terminal_cmd
 
 const generateContactId = () => `ct${Date.now()}${Math.floor(Math.random() * 1000)}`;
 
@@ -4147,18 +4165,28 @@ export const useAppData = create<AppState>((set, get) => ({
     });
   },
   hydrateFromBackpack: (payload) => {
+    console.log('🔵🔵🔵 [hydrateFromBackpack] DÉBUT - Payload complet:', JSON.stringify(payload, null, 2));
+    console.log('🔵🔵🔵 [hydrateFromBackpack] payload.companies:', payload.companies);
+    console.log('🔵🔵🔵 [hydrateFromBackpack] Type de payload.companies:', typeof payload.companies);
+    console.log('🔵🔵🔵 [hydrateFromBackpack] Est un array?:', Array.isArray(payload.companies));
+    console.log('🔵🔵🔵 [hydrateFromBackpack] Nombre d\'entreprises:', Array.isArray(payload.companies) ? payload.companies.length : 'N/A');
+    
     set((state) => {
+      console.log('🔵🔵🔵 [hydrateFromBackpack] State actuel - companies:', state.companies);
+      console.log('🔵🔵🔵 [hydrateFromBackpack] State actuel - nombre companies:', state.companies.length);
+      
       const backendUser = payload.user;
       if (!backendUser || !backendUser.id) {
-        console.warn('[hydrateFromBackpack] Pas de données utilisateur dans le payload');
+        console.warn('⚠️⚠️⚠️ [hydrateFromBackpack] Pas de données utilisateur dans le payload');
         return {};
       }
 
-      console.log('[hydrateFromBackpack] Données reçues du backend:', {
+      console.log('🔵🔵🔵 [hydrateFromBackpack] Données utilisateur:', {
         userId: backendUser.id,
         username: backendUser.username,
         pages: backendUser.pages,
         permissions: backendUser.permissions,
+        companyId: backendUser.companyId,
       });
 
       const existingUser = state.authUsers.find((user) => user.id === backendUser.id) ?? null;
@@ -4217,15 +4245,25 @@ export const useAppData = create<AppState>((set, get) => ({
 
       persistAuthState(nextUsers, sanitizedUser.id);
 
+      console.log('🔵🔵🔵 [hydrateFromBackpack] AVANT mapping - payload.companies:', payload.companies);
+      console.log('🔵🔵🔵 [hydrateFromBackpack] AVANT mapping - state.companies:', state.companies);
+      
       let mappedCompanies = Array.isArray(payload.companies)
         ? payload.companies.map((company) => normalizeCompanySnapshot(company))
         : state.companies;
+      
+      console.log('🔵🔵🔵 [hydrateFromBackpack] APRÈS mapping initial - mappedCompanies:', mappedCompanies);
+      console.log('🔵🔵🔵 [hydrateFromBackpack] Source utilisée:', Array.isArray(payload.companies) ? 'payload.companies' : 'state.companies (FALLBACK)');
 
       if (payload.company) {
+        console.log('🔵🔵🔵 [hydrateFromBackpack] payload.company existe, ajout en premier:', payload.company);
         mappedCompanies = [normalizeCompanySnapshot(payload.company), ...mappedCompanies];
       }
 
+      console.log('🔵🔵🔵 [hydrateFromBackpack] AVANT dedupe - mappedCompanies:', mappedCompanies);
       mappedCompanies = dedupeCompanies(mappedCompanies);
+      console.log('🔵🔵🔵 [hydrateFromBackpack] APRÈS dedupe - mappedCompanies:', mappedCompanies);
+      console.log('🔵🔵🔵 [hydrateFromBackpack] Nombre final d\'entreprises:', mappedCompanies.length);
 
       // Priorité : 1) activeCompanyId depuis localStorage, 2) companyId de l'utilisateur, 3) company du payload, 4) entreprise par défaut, 5) première entreprise, 6) state actuel
       const storedActiveCompanyId = typeof window !== 'undefined' 
@@ -4276,6 +4314,11 @@ export const useAppData = create<AppState>((set, get) => ({
         vatEnabled,
         vatRate,
       };
+      
+      console.log('🔵🔵🔵 [hydrateFromBackpack] ÉTAT FINAL - companies:', nextState.companies);
+      console.log('🔵🔵🔵 [hydrateFromBackpack] ÉTAT FINAL - nombre companies:', nextState.companies?.length || 0);
+      console.log('🔵🔵🔵 [hydrateFromBackpack] ÉTAT FINAL - activeCompanyId:', nextState.activeCompanyId);
+      console.log('🔵🔵🔵 [hydrateFromBackpack] FIN');
       
       // Si une entreprise est définie, charger son backpack
       // Protection globale pour éviter les appels multiples
@@ -4426,7 +4469,9 @@ export const useAppData = create<AppState>((set, get) => ({
     });
   },
   addCompany: (payload) => {
+    console.log('🟢🟢🟢 [addCompany] DÉBUT - Payload reçu:', payload);
     const companyId = `co${Date.now()}`;
+    console.log('🟢🟢🟢 [addCompany] ID généré:', companyId);
     const safePayload: Omit<Company, 'id'> = {
       name: payload.name,
       logoUrl: payload.logoUrl ?? '',
@@ -4454,9 +4499,15 @@ export const useAppData = create<AppState>((set, get) => ({
       planningUser: payload.planningUser ?? null,
     };
     const newCompany: Company = { id: companyId, ...safePayload };
+    console.log('🟢🟢🟢 [addCompany] Nouvelle entreprise créée localement:', newCompany);
     let insertedCompany = newCompany;
     set((state) => {
+      console.log('🟢🟢🟢 [addCompany] State actuel - companies:', state.companies);
+      console.log('🟢🟢🟢 [addCompany] State actuel - nombre companies:', state.companies.length);
+      
       const shouldBeDefault = safePayload.isDefault || state.companies.length === 0;
+      console.log('🟢🟢🟢 [addCompany] shouldBeDefault:', shouldBeDefault);
+      
       const baseCompanies = shouldBeDefault
         ? state.companies.map((company) => ({ ...company, isDefault: false }))
         : state.companies;
@@ -4466,6 +4517,8 @@ export const useAppData = create<AppState>((set, get) => ({
       };
       insertedCompany = companyToInsert;
       const nextCompanies = [...baseCompanies, companyToInsert];
+      console.log('🟢🟢🟢 [addCompany] APRÈS ajout local - nextCompanies:', nextCompanies);
+      console.log('🟢🟢🟢 [addCompany] Nombre d\'entreprises après ajout local:', nextCompanies.length);
       const nextActive = shouldBeDefault
         ? companyToInsert.id
         : state.activeCompanyId ?? companyToInsert.id;
@@ -4483,24 +4536,38 @@ export const useAppData = create<AppState>((set, get) => ({
           nextActive === companyToInsert.id ? companyToInsert.vatEnabled : state.vatEnabled,
       };
     });
+    console.log('🟢🟢🟢 [addCompany] Appel API CompanyService.createCompany...');
     CompanyService.createCompany({
       ...safePayload,
       id: companyId,
       isDefault: insertedCompany.isDefault,
     })
       .then(async (result) => {
+        console.log('🟢🟢🟢 [addCompany] Réponse API createCompany:', result);
         if (!result.success) {
-          console.error('[Store] ❌ Erreur création entreprise:', result.error);
+          console.error('❌❌❌ [addCompany] Erreur création entreprise:', result.error);
           return;
         }
+        console.log('🟢🟢🟢 [addCompany] Entreprise créée avec succès, rechargement de toutes les entreprises...');
         const companiesResult = await CompanyService.getCompanies();
+        console.log('🟢🟢🟢 [addCompany] Réponse getCompanies:', companiesResult);
+        console.log('🟢🟢🟢 [addCompany] Nombre d\'entreprises récupérées:', companiesResult.data?.length || 0);
         if (companiesResult.success && Array.isArray(companiesResult.data)) {
-          set((state) => buildCompanyStateFromBackend(state, companiesResult.data));
+          console.log('🟢🟢🟢 [addCompany] Mise à jour du state avec buildCompanyStateFromBackend...');
+          set((state) => {
+            const newState = buildCompanyStateFromBackend(state, companiesResult.data);
+            console.log('🟢🟢🟢 [addCompany] Nouveau state après buildCompanyStateFromBackend:', newState);
+            console.log('🟢🟢🟢 [addCompany] Nombre d\'entreprises dans nouveau state:', newState.companies?.length || 0);
+            return newState;
+          });
+        } else {
+          console.error('❌❌❌ [addCompany] getCompanies n\'a pas retourné un array valide');
         }
       })
       .catch((error) => {
-        console.error('[Store] ❌ Erreur création entreprise:', error);
+        console.error('❌❌❌ [addCompany] Erreur création entreprise:', error);
       });
+    console.log('🟢🟢🟢 [addCompany] FIN - Entreprise retournée:', insertedCompany);
     return insertedCompany;
   },
   updateCompany: (companyId, updates) => {

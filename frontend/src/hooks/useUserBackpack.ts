@@ -46,13 +46,22 @@ export const useUserBackpack = () => {
       setError(null);
       
       const result = await UserBackpackService.loadBackpack();
-      console.log('📥 [loadBackpack] Réponse reçue', { success: result.success });
+      console.log('📥📥📥 [loadBackpack] Réponse API complète:', JSON.stringify(result, null, 2));
+      console.log('📥📥📥 [loadBackpack] result.success:', result.success);
+      console.log('📥📥📥 [loadBackpack] result.data:', result.data);
+      console.log('📥📥📥 [loadBackpack] result.data.companies:', result.data?.companies);
+      console.log('📥📥📥 [loadBackpack] Type de result.data.companies:', typeof result.data?.companies);
+      console.log('📥📥📥 [loadBackpack] Est un array?:', Array.isArray(result.data?.companies));
+      console.log('📥📥📥 [loadBackpack] Nombre d\'entreprises:', Array.isArray(result.data?.companies) ? result.data.companies.length : 'N/A');
       
       if (result.success && result.data) {
+        console.log('📥📥📥 [loadBackpack] Appel hydrateBackpack avec:', result.data);
         hydrateBackpack(result.data);
         setBackpack(result.data);
         setLastRefresh(new Date());
+        console.log('📥📥📥 [loadBackpack] hydrateBackpack appelé, backpack mis à jour');
       } else {
+        console.error('❌❌❌ [loadBackpack] Erreur:', result.error || 'Erreur lors du chargement');
         setError(result.error || 'Erreur lors du chargement');
       }
     } catch (error) {
