@@ -20,7 +20,8 @@ export const useUserBackpack = () => {
     });
     
     // Protection globale pour éviter les appels multiples même si le hook est monté plusieurs fois
-    if ((window as any).__loadingUserBackpack) {
+    // Mais seulement si on est vraiment en cours de chargement (pas juste un flag qui traîne)
+    if ((window as any).__loadingUserBackpack && isLoadingRef.current) {
       console.log('⚠️ [loadBackpack] DÉJÀ EN COURS - IGNORÉ');
       return;
     }
@@ -83,16 +84,27 @@ export const useUserBackpack = () => {
       stack: new Error().stack?.split('\n').slice(1, 4).join('\n')
     });
     
-    // Protection globale STRICTE - ne charger qu'une seule fois pour toute l'application
-    if ((window as any).__userBackpackLoaded) {
+    // Ne pas charger si déjà chargé ET que le ref local confirme
+    // Mais permettre le rechargement si le ref local n'est pas encore à true
+    if (hasLoadedRef.current && (window as any).__userBackpackLoaded) {
       console.log('🟢 [useUserBackpack] DÉJÀ CHARGÉ - IGNORÉ');
       setIsLoading(false);
       return;
     }
     
+    // Si déjà en cours de chargement, attendre un peu puis réessayer
     if ((window as any).__loadingUserBackpack) {
-      console.log('🟡 [useUserBackpack] EN COURS DE CHARGEMENT - IGNORÉ');
-      return;
+      console.log('🟡 [useUserBackpack] EN COURS DE CHARGEMENT - Attente...');
+      // Attendre un peu puis réessayer si toujours en cours
+      const timeout = setTimeout(() => {
+        if ((window as any).__loadingUserBackpack && !hasLoadedRef.current) {
+          console.log('🟡 [useUserBackpack] Timeout - Réessai du chargement');
+          // Réinitialiser le flag et réessayer
+          (window as any).__loadingUserBackpack = false;
+          loadBackpack();
+        }
+      }, 2000);
+      return () => clearTimeout(timeout);
     }
     
     console.log('🔴 [useUserBackpack] DÉMARRAGE DU CHARGEMENT');
@@ -104,10 +116,12 @@ export const useUserBackpack = () => {
       console.log('✅ [useUserBackpack] CHARGEMENT RÉUSSI');
       // Marquer comme chargé seulement après succès
       (window as any).__userBackpackLoaded = true;
+      (window as any).__loadingUserBackpack = false;
     }).catch(() => {
       console.log('❌ [useUserBackpack] ERREUR DE CHARGEMENT');
       // En cas d'erreur, permettre de réessayer
       (window as any).__userBackpackLoaded = false;
+      (window as any).__loadingUserBackpack = false;
       hasLoadedRef.current = false;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
