@@ -200,11 +200,21 @@ const MobileDevisPage: React.FC = () => {
   }, [statusFilter]);
 
   // Gérer le paramètre engagementId de l'URL pour ouvrir automatiquement la fiche du devis
+  // Utiliser un ref pour éviter les re-renders infinis (comme MobileClientsPage)
+  const engagementIdProcessedRef = useRef<string | null>(null);
   useEffect(() => {
     const engagementIdFromUrl = searchParams.get('engagementId');
-    if (engagementIdFromUrl && filteredQuotes.length > 0) {
+    
+    // Ne traiter qu'une seule fois par engagementId
+    if (!engagementIdFromUrl || engagementIdProcessedRef.current === engagementIdFromUrl) {
+      return;
+    }
+    
+    if (filteredQuotes.length > 0) {
       const engagement = filteredQuotes.find((e) => e.id === engagementIdFromUrl);
       if (engagement) {
+        engagementIdProcessedRef.current = engagementIdFromUrl;
+        
         // Trouver sur quelle page se trouve ce devis
         const engagementIndex = filteredQuotes.findIndex((e) => e.id === engagementIdFromUrl);
         if (engagementIndex >= 0) {
@@ -219,31 +229,36 @@ const MobileDevisPage: React.FC = () => {
             const newParams = new URLSearchParams(searchParams);
             newParams.delete('engagementId');
             setSearchParams(newParams, { replace: true });
+            engagementIdProcessedRef.current = null; // Réinitialiser après traitement
           }, 100);
         } else {
           // Engagement trouvé mais pas dans filteredQuotes (filtre ?), l'expander quand même
+          engagementIdProcessedRef.current = engagementIdFromUrl;
           setExpandedQuoteId(engagementIdFromUrl);
           const newParams = new URLSearchParams(searchParams);
           newParams.delete('engagementId');
           setSearchParams(newParams, { replace: true });
+          engagementIdProcessedRef.current = null; // Réinitialiser après traitement
         }
       }
     }
-  }, [searchParams, filteredQuotes, currentPage, setSearchParams]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, filteredQuotes.length]); // Ne dépendre que de la longueur, pas de l'array complet
 
   // Charger les services et engagements depuis le backend (une seule fois)
   useEffect(() => {
     console.log('🔵 [MobileDevisPage] useEffect loadFromBackend déclenché', {
       hasLoadedRef: hasLoadedRef.current,
       engagementsCount: engagements.length,
-      __appointmentsLoaded: (window as any).__appointmentsLoaded,
-      __loadingAppointments: (window as any).__loadingAppointments,
+      __mobileDevisLoaded: (window as any).__mobileDevisLoaded,
+      __loadingDevis: (window as any).__loadingDevis,
       stack: new Error().stack?.split('\n').slice(1, 4).join('\n')
     });
     
-    // Ne charger qu'une seule fois
-    if (hasLoadedRef.current) {
+    // Protection globale pour éviter les chargements multiples (comme MobileClientsPage)
+    if (hasLoadedRef.current || (window as any).__mobileDevisLoaded) {
       console.log('🟢 [MobileDevisPage] DÉJÀ CHARGÉ - IGNORÉ');
+      hasLoadedRef.current = true;
       return;
     }
     
@@ -251,16 +266,21 @@ const MobileDevisPage: React.FC = () => {
     if (engagements.length > 0) {
       console.log('🟢 [MobileDevisPage] Engagements DÉJÀ DANS LE STORE - IGNORÉ', { count: engagements.length });
       hasLoadedRef.current = true;
+      (window as any).__mobileDevisLoaded = true;
+      (window as any).__loadingDevis = false;
       return;
     }
 
     const loadFromBackend = async () => {
-      if (hasLoadedRef.current) {
+      // Protection globale pour éviter les appels multiples
+      if (hasLoadedRef.current || (window as any).__mobileDevisLoaded || (window as any).__loadingDevis) {
         console.log('⚠️ [MobileDevisPage] loadFromBackend déjà exécuté - IGNORÉ');
         return;
       }
       console.log('🔴 [MobileDevisPage] DÉMARRAGE loadFromBackend');
       hasLoadedRef.current = true;
+      (window as any).__loadingDevis = true;
+      (window as any).__mobileDevisLoaded = false;
 
       try {
         setBackendLoading(true);
@@ -336,15 +356,23 @@ const MobileDevisPage: React.FC = () => {
           }
         }
       } catch (error: any) {
+        console.error('❌ [MobileDevisPage] Erreur lors du chargement:', error);
         setBackendError(error?.message || 'Erreur lors du chargement des devis.');
+        hasLoadedRef.current = false; // Permettre de réessayer en cas d'erreur
+        (window as any).__mobileDevisLoaded = false;
       } finally {
         setBackendLoading(false);
+        (window as any).__loadingDevis = false;
+        // Marquer comme chargé seulement après succès
+        if (!backendError) {
+          (window as any).__mobileDevisLoaded = true;
+        }
       }
     };
     
     loadFromBackend();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Tableau vide = une seule fois au montage
+  }, []); // Tableau vide = une seule fois au montage (comme MobileClientsPage)
 
   // Actions
   const handleDelete = useCallback((engagement: Engagement) => {
