@@ -1,13 +1,11 @@
-version: '3.8'
-
 services:
   # Base de données PostgreSQL avec persistance
   postgres:
     image: postgres:16
     container_name: erp_postgres
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-erp_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_secure_password}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-erp_washgo}
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
@@ -27,18 +25,35 @@ services:
   # Backend FastAPI
   backend:
     build:
-      context: ./BACK-END-ERP
+      context: ./backend
       dockerfile: Dockerfile
     container_name: erp_backend
+    env_file:
+      - .env
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-erp_user}:${POSTGRES_PASSWORD:-change_me_secure_password}@postgres:5432/${POSTGRES_DB:-erp_washgo}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-erp_washgo}
       DB_DIALECT: postgresql
       ENABLE_DEBUG_ROUTES: ${ENABLE_DEBUG_ROUTES:-false}
+      # Google Calendar - IDs des calendriers (depuis .env)
+      CALENDAR_ID_ADRIEN: ${CALENDAR_ID_ADRIEN:-}
+      CALENDAR_ID_CLEMENT: ${CALENDAR_ID_CLEMENT:-}
+      # Google Calendar - Service Accounts (depuis .env)
+      GOOGLE_SA_ADRIEN_JSON: ${GOOGLE_SA_ADRIEN_JSON:-}
+      GOOGLE_SA_CLEMENT_JSON: ${GOOGLE_SA_CLEMENT_JSON:-}
+      # Fenêtre maximale de récupération des événements (jours)
+      CALENDAR_MAX_RANGE_DAYS: ${CALENDAR_MAX_RANGE_DAYS:-180}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
       # Volume pour les logs (optionnel)
       - backend_logs:/app/logs
+      # Volume pour le code source Python (hot reload)
+      - ./backend/app:/app/app
+      # Volume pour les fichiers de credentials Google Calendar (si vous utilisez des fichiers JSON)
+      - ./backend/credentials_adrien.json:/app/credentials_adrien.json:ro
+      - ./backend/credentials_clement.json:/app/credentials_clement.json:ro
+      # Volume pour stocker les photos de profil de manière persistante
+      - user_avatars:/app/user_avatars
     depends_on:
       postgres:
         condition: service_healthy
@@ -49,24 +64,37 @@ services:
       sh -c "
         echo 'Attente de la base de données...' &&
         sleep 5 &&
-        alembic upgrade head &&
-        uvicorn app.main:app --host 0.0.0.0 --port 8000
+        uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
       "
 
-  # Frontend (optionnel - peut être servi via Nginx sur le serveur)
-  # Décommentez si vous voulez servir le frontend via Docker
-  # frontend:
-  #   build:
-  #     context: ./FRONT-END-ERP
-  #     dockerfile: Dockerfile
-  #   container_name: erp_frontend
-  #   ports:
-  #     - "${FRONTEND_PORT:-5173}:80"
-  #   depends_on:
-  #     - backend
-  #   restart: unless-stopped
-  #   networks:
-  #     - erp_network
+  # Frontend React/Vite
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: erp_frontend
+    environment:
+      VITE_BACKEND_URL: http://backend:8000
+      NODE_ENV: development
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    volumes:
+      # Monter le code source pour le hot reload
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/index.html:/app/index.html
+      - ./frontend/vite.config.ts:/app/vite.config.ts
+      - ./frontend/tsconfig.json:/app/tsconfig.json
+      - ./frontend/tailwind.config.ts:/app/tailwind.config.ts
+      - ./frontend/postcss.config.js:/app/postcss.config.js
+      # Exclure node_modules (utiliser ceux du conteneur)
+      - /app/node_modules
+    depends_on:
+      backend:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - erp_network
 
 volumes:
   # Volume persistant pour PostgreSQL - les données seront sauvegardées ici
@@ -75,8 +103,10 @@ volumes:
   # Volume pour les logs backend
   backend_logs:
     driver: local
+  # Volume pour les photos de profil des utilisateurs
+  user_avatars:
+    driver: local
 
 networks:
   erp_network:
     driver: bridge
-

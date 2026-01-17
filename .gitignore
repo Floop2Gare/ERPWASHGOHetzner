@@ -1,24 +1,50 @@
-# Node / Frontend
+# Dependencies
 node_modules/
-**/dist/
-**/.vite/
-*.log
+frontend/node_modules/
+backend/venv/
+backend/__pycache__/
+backend/app/__pycache__/
+backend/app/**/__pycache__/
 
-# Python / Backend
-**/__pycache__/
-**/*.pyc
-**/.pytest_cache/
-**/.mypy_cache/
+# Build outputs
+frontend/dist/
+frontend/.vite/
+frontend/build/
 
-# Environnements / Secrets
+# Environment
 .env
-**/.env.local
-**/.env.*.local
+.env.local
+.env.*.local
 
-# OS / IDE
+# Google API Credentials - NE JAMAIS COMMITER !
+backend/credentials_*.json
+backend/*credentials*.json
+*.json
+!backend/package.json
+!frontend/package.json
+!package.json
+!package-lock.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
 .DS_Store
 Thumbs.db
-.idea/
-.vscode/
 
+# Logs
+*.log
+logs/
+backend/logs/
 
+# Docker
+.docker/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/

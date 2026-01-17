@@ -1,0 +1,114 @@
+Je souhaite déployer mon projet ERP Wash&Go sur mon serveur Hetzner.
+
+=== INFORMATIONS SERVEUR HETZNER ===
+- IP : 65.21.240.234
+- IPv6 : 2a01:4f9:c013:f0f3::/64
+- Hostname : ubuntu-4gb-hel1-4
+- OS : Ubuntu (Linux 6.8.0-90-generic)
+- Datacenter : hel1-dc2 (Helsinki, Finland)
+- Spécifications : 2 vCPU, 4 GB RAM, 40 GB Disk
+- Utilisateur SSH : root
+- Clé SSH : C:\Users\Floop\.ssh\id_ed25519_hetzner (Windows)
+- Chemin projet sur serveur : /opt/erpwashgo
+
+=== CONTEXTE DU PROJET ===
+- Nom : ERP Wash&Go
+- Stack : Backend FastAPI (Python) + Frontend React/Vite (TypeScript) + PostgreSQL
+- Architecture : Docker Compose pour la production
+- État actuel : Le serveur Hetzner est créé, la connexion SSH fonctionne (clé SSH configurée et testée)
+
+=== STRUCTURE DU PROJET ===
+```
+/ERPWASHGO/
+├── backend/
+│   ├── app/
+│   │   ├── main.py (FastAPI)
+│   │   ├── core/
+│   │   │   ├── config.py (variables d'environnement)
+│   │   │   └── security.py (JWT)
+│   │   ├── services/
+│   │   │   └── google_calendar.py (Google Calendar API)
+│   │   └── api/routes/
+│   ├── credentials_adrien.json (SENSIBLE - Google Service Account)
+│   ├── credentials_clement.json (SENSIBLE - Google Service Account)
+│   ├── Dockerfile
+│   └── requirements.txt
+├── frontend/
+│   ├── src/
+│   ├── Dockerfile
+│   └── vite.config.ts
+├── docker-compose.yml (développement)
+├── docker-compose.prod.yml (production)
+└── .env (SENSIBLE - variables d'environnement)
+```
+
+=== FICHIERS SENSIBLES À PROTÉGER ===
+D'après AUDIT_SECRETS_ET_CLES_API.md, les fichiers suivants sont sensibles et NE DOIVENT PAS être sur GitHub :
+1. backend/credentials_adrien.json (Google Service Account - CRITIQUE)
+2. backend/credentials_clement.json (Google Service Account - CRITIQUE)
+3. .env (variables d'environnement - CRITIQUE)
+   - POSTGRES_USER / POSTGRES_PASSWORD / DATABASE_URL
+   - SECRET_KEY (JWT)
+   - GOOGLE_SA_ADRIEN_JSON / GOOGLE_SA_CLEMENT_JSON
+   - CALENDAR_ID_ADRIEN / CALENDAR_ID_CLEMENT
+   - ENABLE_DEBUG_ROUTES, LOG_LEVEL, etc.
+
+Ces fichiers sont déjà dans .gitignore et seront transférés directement au serveur via SCP.
+
+=== VARIABLES D'ENVIRONNEMENT REQUISES ===
+Fichier .env à créer sur le serveur avec :
+- POSTGRES_USER=erp_user (ou autre)
+- POSTGRES_PASSWORD=<mot_de_passe_securise>
+- POSTGRES_DB=erp_washgo
+- DATABASE_URL=postgresql://erp_user:<password>@postgres:5432/erp_washgo
+- SECRET_KEY=<cle_secrete_min_32_caracteres>
+- ACCESS_TOKEN_EXPIRE_MINUTES=10080
+- CALENDAR_ID_ADRIEN=<email_calendrier_adrien>
+- CALENDAR_ID_CLEMENT=<email_calendrier_clement>
+- GOOGLE_SA_ADRIEN_JSON=<json_service_account> (OU utiliser fichiers credentials_*.json)
+- GOOGLE_SA_CLEMENT_JSON=<json_service_account> (OU utiliser fichiers credentials_*.json)
+- ENABLE_DEBUG_ROUTES=false
+- LOG_LEVEL=INFO
+- BACKEND_PORT=8000
+- FRONTEND_PORT=5173 (ou 80 si Nginx)
+
+=== CONFIGURATION DOCKER COMPOSE PRODUCTION ===
+Fichier : docker-compose.prod.yml
+- Services : postgres (PostgreSQL 16-alpine), backend (FastAPI)
+- Frontend : Commenté (peut être servi via Nginx sur le serveur)
+- Volumes : postgres_data, backend_logs
+- Réseau : erp_network (bridge)
+- Le fichier existe mais peut nécessiter des ajustements pour :
+  - Monter les fichiers credentials_*.json
+  - Configurer les variables d'environnement depuis .env
+  - Ajuster les chemins pour la production
+
+=== CORS À CONFIGURER ===
+Dans backend/app/core/config.py, ajouter l'URL de production dans CORS_ORIGINS :
+- Actuellement : ["https://front-end-erp.vercel.app", "http://localhost:..."]
+- À ajouter : URL du frontend en production (ex: "https://votre-domaine.com" ou "http://65.21.240.234:5173")
+
+=== SCRIPTS DISPONIBLES ===
+- prepare-hetzner-server.ps1 : Installe Docker et Docker Compose, crée la structure /opt/erpwashgo/
+- transfer-secrets-to-hetzner.ps1 : Transfère credentials_*.json et .env au serveur via SCP
+- GUIDE_DEPLOIEMENT_HETZNER_SECURISE.md : Guide complet de déploiement sécurisé
+
+=== OBJECTIF DE CETTE CONVERSATION ===
+Préparer et exécuter le déploiement complet du projet sur le serveur Hetzner. Étapes :
+1. Vérifier l'état actuel du serveur (Docker installé ? Structure créée ?)
+2. Préparer l'environnement serveur si nécessaire (Docker, Docker Compose, répertoires)
+3. Configurer docker-compose.prod.yml pour la production (volumes credentials, variables env)
+4. Transférer les fichiers secrets de manière sécurisée (credentials_*.json, .env)
+5. Cloner le projet depuis GitHub sur le serveur
+6. Configurer le fichier .env sur le serveur avec les valeurs de production
+7. Lancer les services avec docker-compose -f docker-compose.prod.yml up -d
+8. Vérifier que tout fonctionne (health checks, logs, connexions)
+9. Configurer CORS et autres paramètres de production
+10. Changer le mot de passe admin par défaut (actuellement "admin1*")
+
+=== COMMANDES SSH ===
+Connexion SSH depuis Windows :
+ssh -i C:\Users\Floop\.ssh\id_ed25519_hetzner root@65.21.240.234
+
+=== DÉMARRAGE ===
+COMMENCEZ par vérifier l'état actuel du serveur (Docker installé ? Structure /opt/erpwashgo/ ?) et guidez-moi étape par étape pour le déploiement complet.

@@ -1,0 +1,5 @@
+# Ignorer ces packages dans le cache Vite pour éviter les erreurs EMFILE
+node_modules/@mui/icons-material
+node_modules/motion-dom
+node_modules/framer-motion
+

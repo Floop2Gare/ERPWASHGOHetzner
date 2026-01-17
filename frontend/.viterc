@@ -1,0 +1,3 @@
+# Configuration Vite pour ignorer les packages problématiques
+# Ce fichier aide Vite à ignorer ces packages lors du scan
+

@@ -1,0 +1,36 @@
+# Backend ERP Wash&Go - Requirements minimaux
+# Version refaite - PostgreSQL direct
+
+# Framework web
+fastapi==0.110.0
+uvicorn[standard]==0.27.1
+
+# Validation des données
+pydantic==2.6.3
+pydantic[email]==2.6.3
+pydantic-settings==2.1.0
+email-validator==2.1.0
+
+# Base de données PostgreSQL
+psycopg[binary]>=3.2.2
+
+# Utilitaires
+python-dotenv==1.0.0
+python-multipart==0.0.9
+
+# Google Calendar (si nécessaire)
+google-auth==2.27.0
+google-auth-oauthlib==1.2.0
+google-auth-httplib2==0.2.0
+google-api-python-client==2.111.0
+
+# HTTP client (httpx est plus moderne et async que requests)
+httpx==0.27.2
+
+# Authentification
+python-jose[cryptography]==3.3.0
+bcrypt==4.1.2
+python-multipart==0.0.9
+
+# Export Excel
+openpyxl==3.1.2

@@ -42,11 +42,11 @@ services:
   # Backend FastAPI
   backend:
     build:
-      context: ./BACK-END-ERP
+      context: ./backend
       dockerfile: Dockerfile
     container_name: erp_backend_prod
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-erp_user}:${POSTGRES_PASSWORD:-change_me_secure_password}@postgres:5432/${POSTGRES_DB:-erp_washgo}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-erp_user}:${POSTGRES_PASSWORD:-change_me_secure_password}@postgres:5432/${POSTGRES_DB:-erp_washgo}
       DB_DIALECT: postgresql
       ENABLE_DEBUG_ROUTES: ${ENABLE_DEBUG_ROUTES:-false}
       PYTHONUNBUFFERED: 1
@@ -56,18 +56,20 @@ services:
     volumes:
       # Volume pour les logs (optionnel)
       - backend_logs:/app/logs
+      # Monter les fichiers credentials depuis le serveur
+      - /opt/erpwashgo/backend/credentials_adrien.json:/app/credentials_adrien.json:ro
+      - /opt/erpwashgo/backend/credentials_clement.json:/app/credentials_clement.json:ro
     depends_on:
       postgres:
         condition: service_healthy
     restart: unless-stopped
     networks:
       - erp_network
-    # Commandes pour appliquer les migrations et démarrer le serveur
+    # Commande pour démarrer le serveur
     command: >
       sh -c "
         echo 'Attente de la base de données...' &&
         sleep 5 &&
-        alembic upgrade head &&
         uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
       "
     healthcheck:
@@ -81,7 +83,7 @@ services:
   # Décommentez si vous voulez servir le frontend via Docker
   # frontend:
   #   build:
-  #     context: ./FRONT-END-ERP
+  #     context: ./frontend
   #     dockerfile: Dockerfile
   #   container_name: erp_frontend_prod
   #   ports:
