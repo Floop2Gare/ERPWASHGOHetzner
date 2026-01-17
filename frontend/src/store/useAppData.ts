@@ -818,8 +818,6 @@ const buildCompanyStateFromBackend = (
   
   return finalState;
 };
-<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>
-run_terminal_cmd
 
 const generateContactId = () => `ct${Date.now()}${Math.floor(Math.random() * 1000)}`;
 
