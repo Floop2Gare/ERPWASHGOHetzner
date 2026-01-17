@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Edit, Save, Cancel, Logout, Business, Person, Email, Phone, Badge, CheckCircle, Description } from '@mui/icons-material';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Edit, Save, Cancel, Logout, Business, Person, Email, Phone, Badge, CheckCircle, Description, Lock } from '@mui/icons-material';
 import { useAppData } from '../../store/useAppData';
-import { AuthService } from '../../api';
+import { AuthService, UserService } from '../../api';
 import '../mobile.css';
 import '../../styles/apple-mobile.css';
 
@@ -23,6 +24,10 @@ const MobileProfilPage: React.FC = () => {
     email: userProfile.email,
     phone: userProfile.phone || '',
   });
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({ oldPassword: '', newPassword: '', confirmPassword: '' });
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordSubmitting, setPasswordSubmitting] = useState(false);
 
   const handleLogout = () => {
     // Déconnexion du backend (supprime le token JWT)
@@ -51,6 +56,59 @@ const MobileProfilPage: React.FC = () => {
       phone: userProfile.phone || '',
     });
     setIsEditing(false);
+  };
+
+  const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setPasswordForm((prev) => ({ ...prev, [name]: value }));
+    setPasswordError(null);
+  };
+
+  const handlePasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordError(null);
+
+    if (!passwordForm.oldPassword || !passwordForm.newPassword || !passwordForm.confirmPassword) {
+      setPasswordError('Veuillez remplir tous les champs.');
+      return;
+    }
+
+    if (passwordForm.newPassword.length < 6) {
+      setPasswordError('Le mot de passe doit contenir au moins 6 caractères.');
+      return;
+    }
+
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      setPasswordError('Les nouveaux mots de passe ne correspondent pas.');
+      return;
+    }
+
+    if (!currentUser?.id) {
+      setPasswordError('Utilisateur non trouvé.');
+      return;
+    }
+
+    setPasswordSubmitting(true);
+
+    try {
+      const result = await UserService.changePassword(
+        currentUser.id,
+        passwordForm.oldPassword,
+        passwordForm.newPassword
+      );
+
+      if (result.success) {
+        setShowPasswordModal(false);
+        setPasswordForm({ oldPassword: '', newPassword: '', confirmPassword: '' });
+        alert('Mot de passe modifié avec succès.');
+      } else {
+        setPasswordError(result.error || 'Erreur lors du changement de mot de passe.');
+      }
+    } catch (error: any) {
+      setPasswordError(error?.message || 'Erreur lors du changement de mot de passe.');
+    } finally {
+      setPasswordSubmitting(false);
+    }
   };
 
   // Vérifier l'authentification après tous les hooks
@@ -438,6 +496,19 @@ const MobileProfilPage: React.FC = () => {
           <Description style={{ fontSize: '18px' }} />
           Créer un devis
         </button>
+        <button
+          onClick={() => setShowPasswordModal(true)}
+          className="btn-base btn-secondary"
+          style={{
+            width: '100%',
+            fontSize: '15px',
+            padding: 'var(--space-md) var(--space-xl)',
+            marginBottom: 'var(--space-md)',
+          }}
+        >
+          <Lock style={{ fontSize: '18px' }} />
+          Changer le mot de passe
+        </button>
       </div>
 
       {/* Déconnexion */}
@@ -456,6 +527,171 @@ const MobileProfilPage: React.FC = () => {
           Se déconnecter
         </button>
       </div>
+
+      {/* Modale de changement de mot de passe */}
+      <AnimatePresence>
+        {showPasswordModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0, 0, 0, 0.7)',
+              zIndex: 2000,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '16px',
+            }}
+            onClick={() => !passwordSubmitting && setShowPasswordModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="mobile-card"
+              style={{ maxWidth: '400px', width: '100%' }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="mobile-card__header">
+                <h2 className="mobile-card__title">Changer le mot de passe</h2>
+                <button
+                  type="button"
+                  onClick={() => !passwordSubmitting && setShowPasswordModal(false)}
+                  className="mobile-icon-button"
+                  disabled={passwordSubmitting}
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={handlePasswordSubmit} className="mobile-card__section">
+                {passwordError && (
+                  <div
+                    style={{
+                      padding: 'var(--space-md)',
+                      background: 'rgba(239, 68, 68, 0.1)',
+                      border: '1px solid rgba(239, 68, 68, 0.3)',
+                      borderRadius: 'var(--radius-md)',
+                      marginBottom: 'var(--space-md)',
+                      color: '#ef4444',
+                      fontSize: '14px',
+                    }}
+                  >
+                    {passwordError}
+                  </div>
+                )}
+
+                <div style={{ marginBottom: 'var(--space-md)' }}>
+                  <label
+                    htmlFor="mobile-password-old"
+                    style={{
+                      display: 'block',
+                      marginBottom: '8px',
+                      fontSize: '12px',
+                      fontWeight: '600',
+                      color: 'var(--text)',
+                    }}
+                  >
+                    Ancien mot de passe *
+                  </label>
+                  <input
+                    id="mobile-password-old"
+                    name="oldPassword"
+                    type="password"
+                    value={passwordForm.oldPassword}
+                    onChange={handlePasswordChange}
+                    required
+                    className="input-modern"
+                    style={{ width: '100%', padding: '12px', fontSize: '14px' }}
+                    autoFocus
+                  />
+                </div>
+
+                <div style={{ marginBottom: 'var(--space-md)' }}>
+                  <label
+                    htmlFor="mobile-password-new"
+                    style={{
+                      display: 'block',
+                      marginBottom: '8px',
+                      fontSize: '12px',
+                      fontWeight: '600',
+                      color: 'var(--text)',
+                    }}
+                  >
+                    Nouveau mot de passe *
+                  </label>
+                  <input
+                    id="mobile-password-new"
+                    name="newPassword"
+                    type="password"
+                    value={passwordForm.newPassword}
+                    onChange={handlePasswordChange}
+                    required
+                    minLength={6}
+                    className="input-modern"
+                    style={{ width: '100%', padding: '12px', fontSize: '14px' }}
+                  />
+                  <p style={{ marginTop: '4px', fontSize: '11px', color: 'var(--muted)' }}>
+                    Minimum 6 caractères
+                  </p>
+                </div>
+
+                <div style={{ marginBottom: 'var(--space-lg)' }}>
+                  <label
+                    htmlFor="mobile-password-confirm"
+                    style={{
+                      display: 'block',
+                      marginBottom: '8px',
+                      fontSize: '12px',
+                      fontWeight: '600',
+                      color: 'var(--text)',
+                    }}
+                  >
+                    Confirmer le nouveau mot de passe *
+                  </label>
+                  <input
+                    id="mobile-password-confirm"
+                    name="confirmPassword"
+                    type="password"
+                    value={passwordForm.confirmPassword}
+                    onChange={handlePasswordChange}
+                    required
+                    minLength={6}
+                    className="input-modern"
+                    style={{ width: '100%', padding: '12px', fontSize: '14px' }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', gap: '12px' }}>
+                  <button
+                    type="button"
+                    onClick={() => !passwordSubmitting && setShowPasswordModal(false)}
+                    className="mobile-button"
+                    style={{ flex: 1 }}
+                    disabled={passwordSubmitting}
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    type="submit"
+                    className="mobile-button mobile-button--primary"
+                    style={{ flex: 1 }}
+                    disabled={passwordSubmitting}
+                  >
+                    {passwordSubmitting ? 'Changement…' : 'Changer'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

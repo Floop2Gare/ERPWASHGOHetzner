@@ -405,6 +405,7 @@ const MobileDevisPage: React.FC = () => {
 
   // Gestion du modal de création
   const openCreateModal = async () => {
+    console.log('🔵 [MobileDevisPage] openCreateModal appelé');
     // S'assurer que les services et catégories sont chargés avant d'ouvrir le modal
     if (services.length === 0) {
       const { ServiceService } = await import('../../api');
@@ -448,7 +449,9 @@ const MobileDevisPage: React.FC = () => {
     setStep2SelectedServiceId('');
     setStep2SelectedOptionIds([]);
     setStep2SupportDetail('');
+    console.log('🔴 [MobileDevisPage] setShowCreateModal(true) appelé');
     setShowCreateModal(true);
+    console.log('✅ [MobileDevisPage] Modal devrait être ouvert maintenant');
   };
 
   const closeCreateModal = () => {
@@ -651,15 +654,27 @@ const MobileDevisPage: React.FC = () => {
   // Gérer le paramètre ?create=true pour ouvrir automatiquement le modal de création
   useEffect(() => {
     const createParam = searchParams.get('create');
+    console.log('🔵 [MobileDevisPage] useEffect createParam:', {
+      createParam,
+      showCreateModal,
+      shouldOpen: createParam === 'true' && !showCreateModal
+    });
     if (createParam === 'true' && !showCreateModal) {
-      openCreateModal();
-      // Nettoyer le paramètre de l'URL
-      const newParams = new URLSearchParams(searchParams);
-      newParams.delete('create');
-      setSearchParams(newParams, { replace: true });
+      console.log('🔴 [MobileDevisPage] Ouverture du modal de création...');
+      openCreateModal().then(() => {
+        console.log('✅ [MobileDevisPage] Modal de création ouvert');
+      }).catch((error) => {
+        console.error('❌ [MobileDevisPage] Erreur lors de l\'ouverture du modal:', error);
+      });
+      // Nettoyer le paramètre de l'URL après un court délai pour laisser le temps au modal de s'ouvrir
+      setTimeout(() => {
+        const newParams = new URLSearchParams(searchParams);
+        newParams.delete('create');
+        setSearchParams(newParams, { replace: true });
+      }, 100);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
+  }, [searchParams, showCreateModal]);
 
   const handleCreateQuote = async (e: React.FormEvent) => {
     e.preventDefault();

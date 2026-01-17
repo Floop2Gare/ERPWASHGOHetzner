@@ -100,6 +100,16 @@ export class UserService {
   static async deleteUser(userId: string): Promise<ApiResponse<void>> {
     return this.delete(userId);
   }
+
+  /**
+   * Change le mot de passe d'un utilisateur
+   */
+  static async changePassword(userId: string, oldPassword: string, newPassword: string): Promise<ApiResponse<User>> {
+    return httpClient.post<User>(`/users/${userId}/change-password`, {
+      oldPassword,
+      newPassword,
+    });
+  }
 }
 
 

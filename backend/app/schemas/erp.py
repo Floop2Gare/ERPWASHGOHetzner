@@ -264,7 +264,8 @@ class UserUpdate(BaseModel):
 
 
 class UserPasswordUpdate(BaseModel):
-    password: str
+    oldPassword: str  # Ancien mot de passe pour vérification
+    newPassword: str  # Nouveau mot de passe
 
 
 class UserResponse(BaseModel):

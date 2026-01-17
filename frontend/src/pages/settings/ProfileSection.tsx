@@ -45,6 +45,10 @@ export const ProfileSection = () => {
   );
   const [profileError, setProfileError] = useState<string | null>(null);
   const [profileSubmitting, setProfileSubmitting] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({ oldPassword: '', newPassword: '', confirmPassword: '' });
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordSubmitting, setPasswordSubmitting] = useState(false);
   const avatarFileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -146,6 +150,66 @@ export const ProfileSection = () => {
     setProfileForm(buildProfileForm(userProfile, currentUser?.companyId));
     setProfileError(null);
   }, [userProfile, currentUser?.companyId]);
+
+  const handlePasswordChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = event.target;
+    setPasswordForm((prev) => ({ ...prev, [name]: value }));
+    setPasswordError(null);
+  };
+
+  const handlePasswordSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setPasswordError(null);
+
+    if (!passwordForm.oldPassword || !passwordForm.newPassword || !passwordForm.confirmPassword) {
+      setPasswordError('Veuillez remplir tous les champs.');
+      return;
+    }
+
+    if (passwordForm.newPassword.length < 6) {
+      setPasswordError('Le mot de passe doit contenir au moins 6 caractères.');
+      return;
+    }
+
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      setPasswordError('Les nouveaux mots de passe ne correspondent pas.');
+      return;
+    }
+
+    if (!currentUser?.id) {
+      setPasswordError('Utilisateur non trouvé.');
+      return;
+    }
+
+    setPasswordSubmitting(true);
+
+    try {
+      const result = await UserService.changePassword(
+        currentUser.id,
+        passwordForm.oldPassword,
+        passwordForm.newPassword
+      );
+
+      if (result.success) {
+        setShowPasswordModal(false);
+        setPasswordForm({ oldPassword: '', newPassword: '', confirmPassword: '' });
+        // Optionnel : afficher un message de succès
+        alert('Mot de passe modifié avec succès.');
+      } else {
+        setPasswordError(result.error || 'Erreur lors du changement de mot de passe.');
+      }
+    } catch (error: any) {
+      setPasswordError(error?.message || 'Erreur lors du changement de mot de passe.');
+    } finally {
+      setPasswordSubmitting(false);
+    }
+  };
+
+  const closePasswordModal = useCallback(() => {
+    setShowPasswordModal(false);
+    setPasswordForm({ oldPassword: '', newPassword: '', confirmPassword: '' });
+    setPasswordError(null);
+  }, []);
 
   useEffect(() => {
     if (!showProfileModal) {
@@ -330,6 +394,14 @@ export const ProfileSection = () => {
             >
               <FileText className="h-4 w-4" />
               Créer un devis
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowPasswordModal(true)}
+              className="flex items-center gap-2 rounded-lg bg-slate-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-slate-700 dark:bg-slate-500 dark:hover:bg-slate-600"
+            >
+              <PeopleIcon className="h-4 w-4" />
+              Changer le mot de passe
             </button>
           </div>
         </section>
@@ -555,6 +627,80 @@ export const ProfileSection = () => {
             <CRMCancelButton onClick={closeProfileModal} disabled={profileSubmitting} />
             <CRMSubmitButton type="submit" disabled={profileSubmitting}>
               {profileSubmitting ? 'Enregistrement…' : 'Enregistrer'}
+            </CRMSubmitButton>
+          </div>
+        </form>
+      </CRMModal>
+
+      {/* Modale de changement de mot de passe */}
+      <CRMModal isOpen={showPasswordModal} onClose={closePasswordModal}>
+        <form
+          onSubmit={handlePasswordSubmit}
+          className="flex flex-col gap-4 bg-white p-4 md:p-6 text-slate-900 dark:bg-slate-900 dark:text-slate-100"
+        >
+          <CRMModalHeader
+            eyebrow="SÉCURITÉ"
+            title="Changer le mot de passe"
+            description="Modifiez votre mot de passe pour sécuriser votre compte."
+            onClose={closePasswordModal}
+          />
+
+          <div className="space-y-4">
+            <CRMErrorAlert message={passwordError} />
+
+            <div>
+              <CRMFormLabel htmlFor="password-old" required>
+                Ancien mot de passe
+              </CRMFormLabel>
+              <CRMFormInput
+                id="password-old"
+                name="oldPassword"
+                type="password"
+                value={passwordForm.oldPassword}
+                onChange={handlePasswordChange}
+                required
+                autoFocus
+              />
+            </div>
+
+            <div>
+              <CRMFormLabel htmlFor="password-new" required>
+                Nouveau mot de passe
+              </CRMFormLabel>
+              <CRMFormInput
+                id="password-new"
+                name="newPassword"
+                type="password"
+                value={passwordForm.newPassword}
+                onChange={handlePasswordChange}
+                required
+                minLength={6}
+              />
+              <p className="mt-1 text-[10px] text-slate-400 dark:text-slate-500">
+                Le mot de passe doit contenir au moins 6 caractères.
+              </p>
+            </div>
+
+            <div>
+              <CRMFormLabel htmlFor="password-confirm" required>
+                Confirmer le nouveau mot de passe
+              </CRMFormLabel>
+              <CRMFormInput
+                id="password-confirm"
+                name="confirmPassword"
+                type="password"
+                value={passwordForm.confirmPassword}
+                onChange={handlePasswordChange}
+                required
+                minLength={6}
+              />
+            </div>
+          </div>
+
+          <div className="mt-2 flex flex-wrap items-center justify-end gap-3 border-t border-slate-200 pt-3 dark:border-slate-800">
+            <CRMCancelButton onClick={closePasswordModal} disabled={passwordSubmitting} />
+            <CRMSubmitButton type="submit" disabled={passwordSubmitting}>
+              {passwordSubmitting ? 'Changement…' : 'Changer le mot de passe'}
             </CRMSubmitButton>
           </div>
         </form>

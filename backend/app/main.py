@@ -23,6 +23,14 @@ app = FastAPI(
     description="API Backend pour ERP Wash&Go - Version refaite"
 )
 
+# Middleware de rate limiting (doit être avant CORS)
+from app.middleware.rate_limit import rate_limit_middleware
+app.middleware("http")(rate_limit_middleware)
+
+# Middleware de contrôle d'accès par token secret (optionnel)
+from app.middleware.access_control import access_control_middleware
+app.middleware("http")(access_control_middleware)
+
 # Configuration CORS pour permettre les requêtes depuis le front-end
 app.add_middleware(
     CORSMiddleware,
@@ -489,13 +497,17 @@ def list_clients(current_user: dict = Depends(get_current_user)) -> Dict[str, An
 @app.post("/clients", status_code=201)
 def create_client(payload: Dict[str, Any], current_user: dict = Depends(get_current_user)) -> Dict[str, Any]:
     company_id = current_user.get("companyId")
+    user_role = current_user.get("role")
     
-    if not company_id:
+    # Permettre aux superAdmin de créer des clients sans entreprise
+    if not company_id and user_role != "superAdmin":
         raise HTTPException(status_code=400, detail="Aucune entreprise associée")
     
     client_id = payload.get("id") or uuid.uuid4().hex
     # S'assurer que l'id est dans le JSON stocké et assigner companyId
-    data = {**payload, "id": client_id, "companyId": company_id}
+    data = {**payload, "id": client_id}
+    if company_id:
+        data["companyId"] = company_id
     with get_db_connection() as conn, conn.cursor() as cur:
         cur.execute(
             """
@@ -1417,6 +1429,81 @@ def update_user(user_id: str, payload: Dict[str, Any], current_user: dict = Depe
             raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
         item = {**row[1], "id": row[0]}
         return {"success": True, "data": item}
+
+
+@app.post("/users/{user_id}/change-password")
+def change_user_password(
+    user_id: str,
+    payload: Dict[str, Any],
+    current_user: dict = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """
+    Permet à un utilisateur de changer son propre mot de passe.
+    L'utilisateur doit fournir son ancien mot de passe pour vérification.
+    Le nouveau mot de passe est stocké en clair dans profile.password pour le super admin.
+    """
+    old_password = payload.get("oldPassword", "")
+    new_password = payload.get("newPassword", "")
+    
+    if not old_password or not new_password:
+        raise HTTPException(status_code=400, detail="Ancien et nouveau mot de passe requis")
+    
+    if len(new_password) < 6:
+        raise HTTPException(status_code=400, detail="Le mot de passe doit contenir au moins 6 caractères")
+    
+    with get_db_connection() as conn, conn.cursor() as cur:
+        # Récupérer l'utilisateur
+        cur.execute("SELECT id, data FROM users WHERE id = %s;", (user_id,))
+        user_row = cur.fetchone()
+        
+        if not user_row:
+            raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+        
+        user_data = user_row[1]
+        current_user_id = current_user.get("id")
+        current_user_role = current_user.get("role")
+        
+        # Vérifier les permissions : l'utilisateur peut changer son propre mot de passe, ou le super admin peut changer n'importe quel mot de passe
+        if user_id != current_user_id and current_user_role != "superAdmin":
+            raise HTTPException(status_code=403, detail="Vous ne pouvez changer que votre propre mot de passe")
+        
+        # Si ce n'est pas le super admin, vérifier l'ancien mot de passe
+        if current_user_role != "superAdmin":
+            password_hash = user_data.get("passwordHash")
+            if not password_hash:
+                raise HTTPException(status_code=401, detail="Mot de passe non configuré")
+            
+            if not verify_password(old_password, password_hash):
+                raise HTTPException(status_code=401, detail="Ancien mot de passe incorrect")
+        
+        # Hasher le nouveau mot de passe
+        from app.core.security import get_password_hash
+        new_password_hash = get_password_hash(new_password)
+        
+        # Mettre à jour le mot de passe hashé pour l'authentification
+        user_data["passwordHash"] = new_password_hash
+        
+        # Stocker le mot de passe en clair dans profile.password pour le super admin
+        if "profile" not in user_data:
+            user_data["profile"] = {}
+        user_data["profile"]["password"] = new_password
+        
+        # Mettre à jour dans la base de données
+        cur.execute(
+            "UPDATE users SET data = %s::jsonb WHERE id = %s RETURNING id, data;",
+            (psycopg.types.json.Json(user_data), user_id),
+        )
+        updated_row = cur.fetchone()
+        
+        if not updated_row:
+            raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+        
+        item = {**updated_row[1], "id": updated_row[0]}
+        # Ne pas retourner le mot de passe en clair dans la réponse
+        if "profile" in item and "password" in item["profile"]:
+            item["profile"]["password"] = "***"
+        
+        return {"success": True, "data": item, "message": "Mot de passe modifié avec succès"}
 
 
 @app.get("/users/{user_id}")
