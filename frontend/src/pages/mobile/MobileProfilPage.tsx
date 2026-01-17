@@ -29,8 +29,8 @@ const MobileProfilPage: React.FC = () => {
     AuthService.logout();
     // Déconnexion du store local
     logout();
-    // Redirection vers la page de connexion avec rechargement complet
-    window.location.href = '/mobile/login';
+    // Naviguer vers la page de connexion sans recharger (pour rester en mode PWA standalone)
+    navigate('/mobile/login', { replace: true });
   };
 
   const handleSave = () => {
@@ -58,9 +58,9 @@ const MobileProfilPage: React.FC = () => {
     // Rediriger vers la page de connexion si pas d'utilisateur
     React.useEffect(() => {
       if (!AuthService.isAuthenticated()) {
-        window.location.href = '/mobile/login';
+        navigate('/mobile/login', { replace: true });
       }
-    }, []);
+    }, [navigate]);
     
     return (
       <div className="modern-text" style={{ padding: '0 var(--space-xl)', width: '100%' }}>

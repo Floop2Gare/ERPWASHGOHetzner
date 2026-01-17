@@ -195,9 +195,7 @@ const App = () => {
         const checkAuth = () => {
           const auth = AuthService.isAuthenticated();
           setIsAuth(auth);
-          if (!auth) {
-            window.location.href = '/mobile/login';
-          }
+          // Ne pas utiliser window.location.href pour éviter de sortir du mode PWA standalone
         };
         
         checkAuth();

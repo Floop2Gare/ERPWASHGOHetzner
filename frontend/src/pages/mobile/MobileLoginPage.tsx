@@ -67,8 +67,8 @@ const MobileLoginPage: React.FC = () => {
         // Attendre un peu pour que le store soit mis à jour
         await new Promise(resolve => setTimeout(resolve, 200));
         
-        // Recharger la page pour forcer useUserBackpack à charger les données et hydrateFromBackpack à mettre à jour le store
-        window.location.href = '/mobile/prestations';
+        // Naviguer vers prestations sans recharger la page (pour rester en mode PWA standalone)
+        navigate('/mobile/prestations', { replace: true });
         return;
       }
       
