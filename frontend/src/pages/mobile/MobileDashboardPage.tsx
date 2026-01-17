@@ -19,12 +19,22 @@ import '../../styles/apple-mobile.css';
 
 const MobileDashboardPage: React.FC = () => {
   const navigate = useNavigate();
+  const theme = useAppData((state) => state.theme);
   const engagements = useAppData((state) => state.engagements) || [];
   const clients = useAppData((state) => state.clients) || [];
   const leads = useAppData((state) => state.leads) || [];
   const companies = useAppData((state) => state.companies) || [];
   const activeCompanyId = useAppData((state) => state.activeCompanyId);
   const computeEngagementTotals = useAppData((state) => state.computeEngagementTotals);
+  
+  // Couleurs adaptées au thème
+  const isDark = theme === 'dark';
+  const bgColor = isDark ? '#1a1a1a' : '#ffffff';
+  const textColor = isDark ? '#ffffff' : '#000000';
+  const textSecondary = isDark ? '#a0a0a0' : '#666666';
+  const borderColor = isDark ? '#333333' : '#e5e7eb';
+  const cardBg = isDark ? '#242424' : '#ffffff';
+  const shadowColor = isDark ? 'rgba(0, 0, 0, 0.3)' : 'rgba(0, 0, 0, 0.08)';
 
   const activeCompany = useMemo(() => {
     if (activeCompanyId) {
@@ -151,7 +161,7 @@ const MobileDashboardPage: React.FC = () => {
     <div className="modern-text" style={{ 
       padding: '0 var(--space-xl)', 
       width: '100%', 
-      background: '#ffffff',
+      background: bgColor,
       minHeight: '100vh',
     }}>
       {/* Header */}
@@ -165,11 +175,11 @@ const MobileDashboardPage: React.FC = () => {
         width: '100%',
         textAlign: 'center',
       }}>
-        <h1 className="text-title" style={{ margin: 0, color: '#000000', fontSize: '24px', fontWeight: '700' }}>
+        <h1 className="text-title" style={{ margin: 0, color: textColor, fontSize: '24px', fontWeight: '700' }}>
             Tableau de bord
           </h1>
           {activeCompany && (
-          <span className="text-caption" style={{ color: '#666666', fontSize: '14px', marginTop: '4px' }}>
+          <span className="text-caption" style={{ color: textSecondary, fontSize: '14px', marginTop: '4px' }}>
               {activeCompany.name}
             </span>
           )}
@@ -181,12 +191,12 @@ const MobileDashboardPage: React.FC = () => {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
         style={{
-          background: '#ffffff',
-          border: '2px solid #e5e7eb',
+          background: cardBg,
+          border: `2px solid ${borderColor}`,
           borderRadius: 'var(--radius-lg)',
           padding: 'var(--space-lg)',
           marginBottom: 'var(--space-md)',
-          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+          boxShadow: `0 2px 8px ${shadowColor}`,
           textAlign: 'center',
         }}
       >
@@ -200,7 +210,7 @@ const MobileDashboardPage: React.FC = () => {
             <p style={{ 
               margin: 0, 
               marginBottom: 'var(--space-xs)', 
-            color: '#666666', 
+            color: textSecondary, 
               fontSize: '13px', 
               fontWeight: '500',
               lineHeight: '1.3',
@@ -209,7 +219,7 @@ const MobileDashboardPage: React.FC = () => {
             </p>
             <h2 style={{ 
               margin: 0, 
-            color: '#000000', 
+            color: textColor, 
             fontSize: '32px', 
               fontWeight: '700', 
               letterSpacing: '-0.01em',
@@ -256,11 +266,11 @@ const MobileDashboardPage: React.FC = () => {
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.2, delay: 0.1 }}
             style={{
-              background: '#ffffff',
-              border: '1px solid #e5e7eb',
+              background: cardBg,
+              border: `1px solid ${borderColor}`,
               borderRadius: 'var(--radius-lg)',
               padding: 'var(--space-md)',
-              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
+              boxShadow: `0 1px 3px ${shadowColor}`,
               textAlign: 'center',
             }}
           >
@@ -287,7 +297,7 @@ const MobileDashboardPage: React.FC = () => {
             <p style={{ 
               margin: 0, 
               fontSize: '11px', 
-              color: '#666666', 
+              color: textSecondary, 
               marginBottom: 'var(--space-xs)',
               lineHeight: '1.3',
             }}>
@@ -297,7 +307,7 @@ const MobileDashboardPage: React.FC = () => {
               margin: 0, 
               fontSize: '20px', 
               fontWeight: '700', 
-              color: '#000000',
+              color: textColor,
               lineHeight: '1.2',
             }}>
               {formatCurrency(stats.revenue)}
@@ -310,11 +320,11 @@ const MobileDashboardPage: React.FC = () => {
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.2, delay: 0.15 }}
             style={{
-              background: '#ffffff',
-              border: '1px solid #e5e7eb',
+              background: cardBg,
+              border: `1px solid ${borderColor}`,
               borderRadius: 'var(--radius-lg)',
               padding: 'var(--space-md)',
-              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
+              boxShadow: `0 1px 3px ${shadowColor}`,
               textAlign: 'center',
             }}
           >
@@ -341,7 +351,7 @@ const MobileDashboardPage: React.FC = () => {
             <p style={{ 
               margin: 0, 
               fontSize: '11px', 
-              color: '#666666', 
+              color: textSecondary, 
               marginBottom: 'var(--space-xs)',
               lineHeight: '1.3',
             }}>
@@ -351,7 +361,7 @@ const MobileDashboardPage: React.FC = () => {
               margin: 0, 
               fontSize: '20px', 
               fontWeight: '700', 
-              color: '#000000',
+              color: textColor,
               lineHeight: '1.2',
             }}>
               {stats.servicesCount}
@@ -364,11 +374,11 @@ const MobileDashboardPage: React.FC = () => {
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.2, delay: 0.2 }}
             style={{
-              background: '#ffffff',
-              border: '1px solid #e5e7eb',
+              background: cardBg,
+              border: `1px solid ${borderColor}`,
               borderRadius: 'var(--radius-lg)',
               padding: 'var(--space-md)',
-              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
+              boxShadow: `0 1px 3px ${shadowColor}`,
               textAlign: 'center',
             }}
           >
@@ -395,7 +405,7 @@ const MobileDashboardPage: React.FC = () => {
             <p style={{ 
               margin: 0, 
               fontSize: '11px', 
-              color: '#666666', 
+              color: textSecondary, 
               marginBottom: 'var(--space-xs)',
               lineHeight: '1.3',
             }}>
@@ -405,7 +415,7 @@ const MobileDashboardPage: React.FC = () => {
               margin: 0, 
               fontSize: '20px', 
               fontWeight: '700', 
-              color: '#000000',
+              color: textColor,
               lineHeight: '1.2',
             }}>
               {stats.quotesCount}
@@ -418,11 +428,11 @@ const MobileDashboardPage: React.FC = () => {
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.2, delay: 0.25 }}
             style={{
-              background: '#ffffff',
-              border: '1px solid #e5e7eb',
+              background: cardBg,
+              border: `1px solid ${borderColor}`,
               borderRadius: 'var(--radius-lg)',
               padding: 'var(--space-md)',
-              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
+              boxShadow: `0 1px 3px ${shadowColor}`,
               textAlign: 'center',
             }}
           >
@@ -449,7 +459,7 @@ const MobileDashboardPage: React.FC = () => {
             <p style={{ 
               margin: 0, 
               fontSize: '11px', 
-              color: '#666666', 
+              color: textSecondary, 
               marginBottom: 'var(--space-xs)',
               lineHeight: '1.3',
             }}>
@@ -459,7 +469,7 @@ const MobileDashboardPage: React.FC = () => {
               margin: 0, 
               fontSize: '20px', 
               fontWeight: '700', 
-              color: '#000000',
+              color: textColor,
               lineHeight: '1.2',
             }}>
               {formatDuration(stats.duration)}
@@ -472,7 +482,7 @@ const MobileDashboardPage: React.FC = () => {
       <div style={{ marginBottom: 'var(--space-md)' }}>
         <h3 className="text-headline" style={{ 
           margin: '0 0 var(--space-md) 0', 
-          color: '#000000', 
+          color: textColor, 
           fontSize: '18px', 
           fontWeight: '700',
           lineHeight: '1.2',
@@ -492,8 +502,8 @@ const MobileDashboardPage: React.FC = () => {
             transition={{ duration: 0.2, delay: 0.3 }}
             onClick={() => navigate('/mobile/prestations')}
             style={{
-              background: '#ffffff',
-              border: '1px solid #e5e7eb',
+              background: cardBg,
+              border: `1px solid ${borderColor}`,
               borderRadius: 'var(--radius-lg)',
               padding: 'var(--space-md)',
               display: 'flex',
@@ -503,7 +513,7 @@ const MobileDashboardPage: React.FC = () => {
               gap: 'var(--space-xs)',
               cursor: 'pointer',
               transition: 'all 0.15s ease-out',
-              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
+              boxShadow: `0 1px 3px ${shadowColor}`,
               textAlign: 'center',
             }}
             onMouseDown={(e) => {
@@ -532,7 +542,7 @@ const MobileDashboardPage: React.FC = () => {
                 margin: 0, 
                 fontSize: '14px', 
                 fontWeight: '600', 
-                color: '#000000', 
+                color: textColor, 
                 lineHeight: '1.3',
               }}>
                 Prestations
@@ -547,8 +557,8 @@ const MobileDashboardPage: React.FC = () => {
             transition={{ duration: 0.2, delay: 0.35 }}
             onClick={() => navigate('/mobile/devis')}
             style={{
-              background: '#ffffff',
-              border: '1px solid #e5e7eb',
+              background: cardBg,
+              border: `1px solid ${borderColor}`,
               borderRadius: 'var(--radius-lg)',
               padding: 'var(--space-md)',
               display: 'flex',
@@ -558,7 +568,7 @@ const MobileDashboardPage: React.FC = () => {
               gap: 'var(--space-xs)',
               cursor: 'pointer',
               transition: 'all 0.15s ease-out',
-              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
+              boxShadow: `0 1px 3px ${shadowColor}`,
               textAlign: 'center',
             }}
             onMouseDown={(e) => {
@@ -587,7 +597,7 @@ const MobileDashboardPage: React.FC = () => {
                 margin: 0, 
                 fontSize: '14px', 
                 fontWeight: '600', 
-                color: '#000000', 
+                color: textColor, 
                 lineHeight: '1.3',
               }}>
                 Devis
@@ -602,8 +612,8 @@ const MobileDashboardPage: React.FC = () => {
             transition={{ duration: 0.2, delay: 0.4 }}
             onClick={() => navigate('/mobile/prospects')}
             style={{
-              background: '#ffffff',
-              border: '1px solid #e5e7eb',
+              background: cardBg,
+              border: `1px solid ${borderColor}`,
               borderRadius: 'var(--radius-lg)',
               padding: 'var(--space-md)',
               display: 'flex',
@@ -613,7 +623,7 @@ const MobileDashboardPage: React.FC = () => {
               gap: 'var(--space-xs)',
               cursor: 'pointer',
               transition: 'all 0.15s ease-out',
-              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
+              boxShadow: `0 1px 3px ${shadowColor}`,
               textAlign: 'center',
             }}
             onMouseDown={(e) => {
@@ -642,7 +652,7 @@ const MobileDashboardPage: React.FC = () => {
                 margin: 0, 
                 fontSize: '14px', 
                 fontWeight: '600', 
-                color: '#000000', 
+                color: textColor, 
                 lineHeight: '1.3',
               }}>
                 Prospects
@@ -657,8 +667,8 @@ const MobileDashboardPage: React.FC = () => {
             transition={{ duration: 0.2, delay: 0.45 }}
             onClick={() => navigate('/mobile/clients')}
             style={{
-              background: '#ffffff',
-              border: '1px solid #e5e7eb',
+              background: cardBg,
+              border: `1px solid ${borderColor}`,
               borderRadius: 'var(--radius-lg)',
               padding: 'var(--space-md)',
               display: 'flex',
@@ -668,7 +678,7 @@ const MobileDashboardPage: React.FC = () => {
               gap: 'var(--space-xs)',
               cursor: 'pointer',
               transition: 'all 0.15s ease-out',
-              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
+              boxShadow: `0 1px 3px ${shadowColor}`,
               textAlign: 'center',
             }}
             onMouseDown={(e) => {
@@ -697,7 +707,7 @@ const MobileDashboardPage: React.FC = () => {
                 margin: 0, 
                 fontSize: '14px', 
                 fontWeight: '600', 
-                color: '#000000', 
+                color: textColor, 
                 lineHeight: '1.3',
               }}>
                 Clients
