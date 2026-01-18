@@ -287,6 +287,13 @@ const MobileDevisPage: React.FC = () => {
       (window as any).__loadingDevis = false;
     }
 
+    // Si __loadingDevis est true, on attend que le chargement se termine
+    // Ne pas marquer hasLoadedRef à true ici pour éviter les re-renders infinis
+    if ((window as any).__loadingDevis) {
+      console.log('⏳ [MobileDevisPage] Chargement en cours, attente...');
+      return;
+    }
+
     const loadFromBackend = async () => {
       // Protection globale pour éviter les appels multiples
       if (hasLoadedRef.current || (window as any).__mobileDevisLoaded || (window as any).__loadingDevis) {
@@ -294,7 +301,7 @@ const MobileDevisPage: React.FC = () => {
         return;
       }
       console.log('🔴 [MobileDevisPage] DÉMARRAGE loadFromBackend');
-      hasLoadedRef.current = true;
+      hasLoadedRef.current = true; // Marquer IMMÉDIATEMENT pour éviter les re-déclenchements
       (window as any).__loadingDevis = true;
       (window as any).__mobileDevisLoaded = false;
 
