@@ -265,18 +265,21 @@ const MobileDevisPage: React.FC = () => {
       return;
     }
     
-    // Protection globale pour éviter les chargements multiples (comme MobileClientsPage)
-    // MAIS vérifier aussi si les engagements sont réellement chargés
-    // Si __mobileDevisLoaded est true mais engagements.length === 0, il y a une incohérence -> forcer le chargement
-    if (hasLoadedRef.current || ((window as any).__mobileDevisLoaded && engagements.length > 0)) {
+    // Protection globale : utiliser UNIQUEMENT les flags globaux pour éviter les re-déclenchements
+    // Si __loadingDevis est true, attendre que le chargement se termine
+    if ((window as any).__loadingDevis) {
+      console.log('⏳ [MobileDevisPage] Chargement en cours, attente...');
+      hasLoadedRef.current = true; // Marquer pour éviter les re-déclenchements
+      return;
+    }
+    
+    // Si __mobileDevisLoaded est true ET engagements.length > 0, ne rien faire
+    if ((window as any).__mobileDevisLoaded && engagements.length > 0) {
       console.log('🟢 [MobileDevisPage] DÉJÀ CHARGÉ - IGNORÉ', {
-        hasLoadedRef: hasLoadedRef.current,
         __mobileDevisLoaded: (window as any).__mobileDevisLoaded,
         engagementsCount: engagements.length
       });
-      if (!hasLoadedRef.current) {
-        hasLoadedRef.current = true;
-      }
+      hasLoadedRef.current = true;
       return;
     }
     
@@ -287,24 +290,26 @@ const MobileDevisPage: React.FC = () => {
       (window as any).__loadingDevis = false;
     }
 
-    // Si __loadingDevis est true, on attend que le chargement se termine
-    // Marquer hasLoadedRef pour éviter que le useEffect se déclenche en boucle
-    if ((window as any).__loadingDevis) {
-      console.log('⏳ [MobileDevisPage] Chargement en cours, attente...');
-      hasLoadedRef.current = true; // Important : marquer pour éviter les re-déclenchements
-      return;
+    // Si hasLoadedRef est true mais les flags globaux ne le sont pas, synchroniser
+    if (hasLoadedRef.current && !(window as any).__mobileDevisLoaded && !(window as any).__loadingDevis) {
+      // hasLoadedRef est true mais pas les flags globaux -> réinitialiser hasLoadedRef
+      hasLoadedRef.current = false;
     }
 
     const loadFromBackend = async () => {
-      // Protection globale pour éviter les appels multiples
-      if (hasLoadedRef.current || (window as any).__mobileDevisLoaded || (window as any).__loadingDevis) {
-        console.log('⚠️ [MobileDevisPage] loadFromBackend déjà exécuté - IGNORÉ');
+      // Protection globale : utiliser UNIQUEMENT les flags globaux
+      if ((window as any).__mobileDevisLoaded || (window as any).__loadingDevis) {
+        console.log('⚠️ [MobileDevisPage] loadFromBackend déjà exécuté - IGNORÉ', {
+          __mobileDevisLoaded: (window as any).__mobileDevisLoaded,
+          __loadingDevis: (window as any).__loadingDevis
+        });
         return;
       }
       console.log('🔴 [MobileDevisPage] DÉMARRAGE loadFromBackend');
-      hasLoadedRef.current = true; // Marquer IMMÉDIATEMENT pour éviter les re-déclenchements
+      // Marquer IMMÉDIATEMENT les flags globaux AVANT toute opération async
       (window as any).__loadingDevis = true;
       (window as any).__mobileDevisLoaded = false;
+      hasLoadedRef.current = true; // Marquer aussi le ref local
 
       try {
         setBackendLoading(true);
