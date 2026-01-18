@@ -273,27 +273,15 @@ const MobileDevisPage: React.FC = () => {
       return;
     }
     
-    // Si __mobileDevisLoaded est true ET engagements.length > 0, ne rien faire
-    if ((window as any).__mobileDevisLoaded && engagements.length > 0) {
+    // Si __mobileDevisLoaded est true, NE RIEN FAIRE (même si engagements.length === 0)
+    // engagements.length === 0 est une situation valide après chargement (pas de devis créés)
+    if ((window as any).__mobileDevisLoaded) {
       console.log('🟢 [MobileDevisPage] DÉJÀ CHARGÉ - IGNORÉ', {
         __mobileDevisLoaded: (window as any).__mobileDevisLoaded,
         engagementsCount: engagements.length
       });
       hasLoadedRef.current = true;
       return;
-    }
-    
-    // Si __mobileDevisLoaded est true mais engagements.length === 0, réinitialiser le flag
-    if ((window as any).__mobileDevisLoaded && engagements.length === 0) {
-      console.warn('⚠️ [MobileDevisPage] Incohérence détectée: __mobileDevisLoaded=true mais engagements.length=0. Réinitialisation...');
-      (window as any).__mobileDevisLoaded = false;
-      (window as any).__loadingDevis = false;
-    }
-
-    // Si hasLoadedRef est true mais les flags globaux ne le sont pas, synchroniser
-    if (hasLoadedRef.current && !(window as any).__mobileDevisLoaded && !(window as any).__loadingDevis) {
-      // hasLoadedRef est true mais pas les flags globaux -> réinitialiser hasLoadedRef
-      hasLoadedRef.current = false;
     }
 
     const loadFromBackend = async () => {
