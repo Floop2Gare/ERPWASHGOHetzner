@@ -97,8 +97,8 @@ services:
       dockerfile: Dockerfile.prod
     container_name: erp_frontend_prod
     ports:
-      - "${FRONTEND_PORT:-5173}:443"  # HTTPS
-      - "${FRONTEND_PORT_HTTP:-80}:80"  # HTTP (redirige vers HTTPS)
+      - "443:443"  # HTTPS
+      - "80:80"  # HTTP (redirige vers HTTPS)
     volumes:
       # Monter les certificats Let's Encrypt
       - /etc/letsencrypt:/etc/letsencrypt:ro
