@@ -256,13 +256,6 @@ const MobileDevisPage: React.FC = () => {
       stack: new Error().stack?.split('\n').slice(1, 4).join('\n')
     });
     
-    // Protection globale pour éviter les chargements multiples (comme MobileClientsPage)
-    if (hasLoadedRef.current || (window as any).__mobileDevisLoaded) {
-      console.log('🟢 [MobileDevisPage] DÉJÀ CHARGÉ - IGNORÉ');
-      hasLoadedRef.current = true;
-      return;
-    }
-    
     // Si on a déjà des engagements, marquer comme chargé et ne rien faire
     if (engagements.length > 0) {
       console.log('🟢 [MobileDevisPage] Engagements DÉJÀ DANS LE STORE - IGNORÉ', { count: engagements.length });
@@ -270,6 +263,28 @@ const MobileDevisPage: React.FC = () => {
       (window as any).__mobileDevisLoaded = true;
       (window as any).__loadingDevis = false;
       return;
+    }
+    
+    // Protection globale pour éviter les chargements multiples (comme MobileClientsPage)
+    // MAIS vérifier aussi si les engagements sont réellement chargés
+    // Si __mobileDevisLoaded est true mais engagements.length === 0, il y a une incohérence -> forcer le chargement
+    if (hasLoadedRef.current || ((window as any).__mobileDevisLoaded && engagements.length > 0)) {
+      console.log('🟢 [MobileDevisPage] DÉJÀ CHARGÉ - IGNORÉ', {
+        hasLoadedRef: hasLoadedRef.current,
+        __mobileDevisLoaded: (window as any).__mobileDevisLoaded,
+        engagementsCount: engagements.length
+      });
+      if (!hasLoadedRef.current) {
+        hasLoadedRef.current = true;
+      }
+      return;
+    }
+    
+    // Si __mobileDevisLoaded est true mais engagements.length === 0, réinitialiser le flag
+    if ((window as any).__mobileDevisLoaded && engagements.length === 0) {
+      console.warn('⚠️ [MobileDevisPage] Incohérence détectée: __mobileDevisLoaded=true mais engagements.length=0. Réinitialisation...');
+      (window as any).__mobileDevisLoaded = false;
+      (window as any).__loadingDevis = false;
     }
 
     const loadFromBackend = async () => {
