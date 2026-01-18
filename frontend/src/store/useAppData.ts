@@ -4247,7 +4247,7 @@ export const useAppData = create<AppState>((set, get) => ({
 
       console.log('🔵🔵🔵 [hydrateFromBackpack] AVANT mapping - payload.companies:', payload.companies);
       console.log('🔵🔵🔵 [hydrateFromBackpack] AVANT mapping - state.companies:', state.companies);
-      
+
       let mappedCompanies = Array.isArray(payload.companies)
         ? payload.companies.map((company) => normalizeCompanySnapshot(company))
         : state.companies;

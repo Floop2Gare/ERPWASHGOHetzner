@@ -28,8 +28,12 @@ class Settings:
         "http://localhost:3000",
         "http://localhost:5173",
         "http://localhost:5174",
-        "http://65.21.240.234:5173",  # Frontend sur Hetzner
-        "http://65.21.240.234:8000",  # Backend sur Hetzner (si nécessaire)
+        "https://erpwashgo.fr",        # Frontend sur domaine (HTTPS)
+        "https://www.erpwashgo.fr",    # Frontend www (HTTPS)
+        "http://erpwashgo.fr",         # Frontend (HTTP - redirection)
+        "https://65.21.240.234:5173",  # Frontend sur Hetzner IP (HTTPS)
+        "http://65.21.240.234:5173",   # Frontend sur Hetzner (HTTP - redirection)
+        "http://65.21.240.234:8000",   # Backend sur Hetzner (si nécessaire)
     ]
     
     # Security

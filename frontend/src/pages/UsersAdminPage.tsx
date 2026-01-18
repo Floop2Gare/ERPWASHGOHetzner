@@ -390,7 +390,7 @@ const UsersAdminPage = () => {
       return;
     }
     setFormError(null);
-    setDetail({ mode: 'edit', userId: detail.userId });
+    closeDetail();
   };
 
   const handleToggleActive = (userId: string, active: boolean) => {
@@ -795,7 +795,7 @@ const UsersAdminPage = () => {
                 : 'Mettez à jour les informations et les permissions de cet utilisateur.'
             }
             onClose={closeDetail}
-            className="px-0 pt-0"
+            className="px-0 pt-0 [&_h2]:text-slate-900"
           />
 
           <div className="space-y-2.5">
@@ -865,7 +865,7 @@ const UsersAdminPage = () => {
                     <button
                       type="button"
                       onClick={handlePasswordReset}
-                      className="rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-xs font-semibold text-blue-700 shadow-sm transition-all hover:bg-blue-100 hover:border-blue-300 hover:shadow focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:border-blue-700 dark:bg-blue-900/20 dark:text-blue-300 dark:hover:bg-blue-900/30"
+                      className="rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-xs font-semibold text-blue-700 shadow-sm transition-all hover:bg-blue-100 hover:border-blue-300 hover:shadow focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
                     >
                       Réinitialiser
                     </button>

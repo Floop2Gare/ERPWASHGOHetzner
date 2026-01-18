@@ -11,7 +11,6 @@ import {
   Description as DescriptionIcon 
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { FileText } from 'lucide-react';
 
 import { Button } from '../../components/Button';
 import { useAppData } from '../../store/useAppData';
@@ -70,6 +69,22 @@ export const ProfileSection = () => {
       }
     }
   }, [searchParams, setSearchParams, showProfileModal]);
+
+  // Ouvrir automatiquement la modale du mot de passe depuis l'URL (?openPassword=true)
+  useEffect(() => {
+    const openPassword = searchParams.get('openPassword');
+    if (openPassword === 'true') {
+      // Nettoyer le paramètre IMMÉDIATEMENT pour éviter la boucle
+      const next = new URLSearchParams(searchParams);
+      next.delete('openPassword');
+      setSearchParams(next, { replace: true });
+
+      // Vérifier si la modale n'est pas déjà ouverte
+      if (!showPasswordModal) {
+        setShowPasswordModal(true);
+      }
+    }
+  }, [searchParams, setSearchParams, showPasswordModal]);
 
   const handleProfileChange = (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = event.target;
@@ -316,13 +331,22 @@ export const ProfileSection = () => {
                   <span>{getInitials(userProfile.firstName, userProfile.lastName)}</span>
                 )}
               </div>
-              <button
-                type="button"
-                onClick={() => setShowProfileModal(true)}
-                className="flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600"
-              >
-                Modifier le profil
-              </button>
+              <div className="flex flex-col gap-2 w-full lg:w-auto">
+                <button
+                  type="button"
+                  onClick={() => setShowProfileModal(true)}
+                  className="flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600"
+                >
+                  Modifier le profil
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowPasswordModal(true)}
+                  className="flex items-center justify-center gap-2 rounded-lg bg-slate-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-slate-700 dark:bg-slate-500 dark:hover:bg-slate-600"
+                >
+                  Changer le mot de passe
+                </button>
+              </div>
             </div>
 
             {/* Informations détaillées */}
@@ -380,29 +404,6 @@ export const ProfileSection = () => {
                 </div>
               </div>
             </div>
-          </div>
-        </section>
-
-        {/* Actions rapides */}
-        <section className="space-y-4">
-          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Actions rapides</h2>
-          <div className="flex flex-wrap gap-3">
-            <button
-              type="button"
-              onClick={() => navigate('/workspace/crm/devis?create=true')}
-              className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600"
-            >
-              <FileText className="h-4 w-4" />
-              Créer un devis
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowPasswordModal(true)}
-              className="flex items-center gap-2 rounded-lg bg-slate-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-slate-700 dark:bg-slate-500 dark:hover:bg-slate-600"
-            >
-              <PeopleIcon className="h-4 w-4" />
-              Changer le mot de passe
-            </button>
           </div>
         </section>
 

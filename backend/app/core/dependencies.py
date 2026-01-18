@@ -174,12 +174,19 @@ def verify_company_access(user_id: str, company_id: str) -> bool:
             
             user_data = user_row[0]
             user_company_id = user_data.get("companyId")
+            user_role = user_data.get("role")
+            
+            # Les superAdmin ont accès à toutes les entreprises
+            if user_role == "superAdmin":
+                # Vérifier que l'entreprise existe
+                cur.execute("SELECT id FROM companies WHERE id = %s;", (company_id,))
+                return cur.fetchone() is not None
             
             # Vérifier si l'entreprise correspond
             if user_company_id == company_id:
                 return True
             
-            # Si l'utilisateur n'a pas de companyId (admin), vérifier que l'entreprise existe
+            # Si l'utilisateur n'a pas de companyId, vérifier que l'entreprise existe
             if user_company_id is None:
                 cur.execute("SELECT id FROM companies WHERE id = %s;", (company_id,))
                 return cur.fetchone() is not None

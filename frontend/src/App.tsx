@@ -24,6 +24,8 @@ import MobileLayout from './pages/mobile/MobileLayout';
 import MobilePrestationsPage from './pages/mobile/MobilePrestationsPage';
 import MobileDevisPage from './pages/mobile/MobileDevisPage';
 import MobileCreateDevisPage from './pages/mobile/MobileCreateDevisPage';
+import MobileCreateProspectPage from './pages/mobile/MobileCreateProspectPage';
+import MobileCreateClientPage from './pages/mobile/MobileCreateClientPage';
 import MobileProspectsPage from './pages/mobile/MobileProspectsPage';
 import MobileClientsPage from './pages/mobile/MobileClientsPage';
 import MobileProfilPage from './pages/mobile/MobileProfilPage';
@@ -225,6 +227,7 @@ const App = () => {
           <Route path="dashboard" element={<MobileDashboardPage />} />
           <Route path="prestations" element={<MobilePrestationsPage />} />
           <Route path="devis" element={<MobileDevisPage />} />
+          <Route path="devis/create" element={<MobileCreateDevisPage />} />
           <Route 
             path="facturation" 
             element={
@@ -234,7 +237,9 @@ const App = () => {
             } 
           />
           <Route path="prospects" element={<MobileProspectsPage />} />
+          <Route path="prospects/create" element={<MobileCreateProspectPage />} />
           <Route path="clients" element={<MobileClientsPage />} />
+          <Route path="clients/create" element={<MobileCreateClientPage />} />
           <Route path="factures" element={<MobileFacturesPage />} />
           <Route path="profil" element={<MobileProfilPage />} />
           <Route path="*" element={<Navigate to="/mobile/dashboard" replace />} />

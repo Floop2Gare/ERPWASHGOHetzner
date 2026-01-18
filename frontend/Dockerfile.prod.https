@@ -1,0 +1,55 @@
+# Dockerfile pour le frontend en production avec HTTPS
+# Build le frontend et le sert avec nginx + SSL
+
+# Stage 1: Build
+FROM node:20-alpine as builder
+
+WORKDIR /app
+
+# Installer les dépendances système nécessaires
+RUN apk add --no-cache \
+    git \
+    python3 \
+    make \
+    g++
+
+# Copier les fichiers de dépendances
+COPY package.json package-lock.json* ./
+
+# Installer les dépendances npm
+RUN npm install
+
+# Copier le reste du code de l'application
+COPY . .
+
+# Build le frontend pour la production
+RUN npm run build
+
+# Stage 2: Production avec nginx + SSL
+FROM nginx:alpine
+
+# Copier les fichiers buildés depuis le stage builder
+COPY --from=builder /app/dist /usr/share/nginx/html
+
+# Créer le répertoire pour les certificats SSL
+RUN mkdir -p /etc/nginx/ssl
+
+# Copier la configuration nginx HTTPS
+COPY nginx-https.conf /etc/nginx/templates/default.conf.template
+
+# Variables d'environnement pour les certificats (peut être override via volumes)
+ENV SSL_CERT_PATH=/etc/nginx/ssl/cert.pem
+ENV SSL_KEY_PATH=/etc/nginx/ssl/key.pem
+
+# Générer un certificat auto-signé par défaut (peut être remplacé par un vrai certificat)
+# Note: Pour un certificat Let's Encrypt, montez les fichiers via volume Docker
+RUN apk add --no-cache openssl && \
+    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+    -keyout /etc/nginx/ssl/key.pem \
+    -out /etc/nginx/ssl/cert.pem \
+    -subj "/C=FR/ST=France/L=Paris/O=ERPWashGo/CN=localhost" || \
+    echo "Note: Les certificats SSL doivent être montés via volume Docker"
+
+EXPOSE 80 443
+
+CMD ["nginx", "-g", "daemon off;"]

@@ -45,20 +45,31 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: erp_backend_prod
+    env_file:
+      - .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-erp_user}:${POSTGRES_PASSWORD:-change_me_secure_password}@postgres:5432/${POSTGRES_DB:-erp_washgo}
       DB_DIALECT: postgresql
       ENABLE_DEBUG_ROUTES: ${ENABLE_DEBUG_ROUTES:-false}
       PYTHONUNBUFFERED: 1
       PYTHONDONTWRITEBYTECODE: 1
+      # Google Calendar - IDs des calendriers
+      CALENDAR_ID_ADRIEN: ${CALENDAR_ID_ADRIEN:-}
+      CALENDAR_ID_CLEMENT: ${CALENDAR_ID_CLEMENT:-}
+      # Google Calendar - Service Accounts (depuis fichiers montés, pas depuis .env)
+      GOOGLE_SA_ADRIEN_FILE: /app/credentials_adrien.json
+      GOOGLE_SA_CLEMENT_FILE: /app/credentials_clement.json
+      # Google Calendar - Configuration
+      CALENDAR_MAX_RANGE_DAYS: ${CALENDAR_MAX_RANGE_DAYS:-180}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
       # Volume pour les logs (optionnel)
       - backend_logs:/app/logs
-      # Monter les fichiers credentials depuis le serveur
+      # Monter les fichiers credentials depuis le serveur (avec permissions correctes)
       - /opt/erpwashgo/backend/credentials_adrien.json:/app/credentials_adrien.json:ro
       - /opt/erpwashgo/backend/credentials_clement.json:/app/credentials_clement.json:ro
+    user: "1000:1000"  # Forcer l'utilisation de l'UID 1000 pour lire les fichiers
     depends_on:
       postgres:
         condition: service_healthy
@@ -79,20 +90,24 @@ services:
       retries: 3
       start_period: 40s
 
-  # Frontend (optionnel - peut être servi via Nginx sur le serveur)
-  # Décommentez si vous voulez servir le frontend via Docker
-  # frontend:
-  #   build:
-  #     context: ./frontend
-  #     dockerfile: Dockerfile
-  #   container_name: erp_frontend_prod
-  #   ports:
-  #     - "${FRONTEND_PORT:-5173}:80"
-  #   depends_on:
-  #     - backend
-  #   restart: unless-stopped
-  #   networks:
-  #     - erp_network
+  # Frontend React/Vite
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    container_name: erp_frontend_prod
+    ports:
+      - "${FRONTEND_PORT:-5173}:443"  # HTTPS
+      - "${FRONTEND_PORT_HTTP:-80}:80"  # HTTP (redirige vers HTTPS)
+    volumes:
+      # Monter les certificats Let's Encrypt
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      backend:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - erp_network
 
 volumes:
   # Volume persistant pour PostgreSQL - les données seront sauvegardées ici

@@ -1,1055 +1,1427 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowBack } from '@mui/icons-material';
-import { motion } from 'framer-motion';
-import { useAppData } from '../../store/useAppData';
-import { ClientService, ServiceService, CategoryService } from '../../api';
-import { buildInitialDraft, buildPreviewEngagement, computeEngagementTotals, formatCurrency, formatDuration } from '../service/utils';
-import type { EngagementDraft } from '../service/types';
+import { 
+  FileText, 
+  Plus, 
+  ChevronLeft,
+  ChevronRight,
+  Building2,
+  UserPlus,
+  Mail,
+  Phone,
+  Search,
+  Info,
+  Users,
+  X,
+} from 'lucide-react';
 import { ClientLeadSearch } from '../../components/ClientLeadSearch';
-import type { SupportType, EngagementStatus, ServiceCategory } from '../../store/useAppData';
+import { useAppData, EngagementOptionOverride, SupportType } from '../../store/useAppData';
+import type { Client, Company, Service, Lead } from '../../store/useAppData';
+import { formatCurrency, formatDuration } from '../../lib/format';
+import { useEntityMaps } from '../../hooks/useEntityMaps';
+import { AppointmentService } from '../../api';
+import { sanitizeVatRate, getNextQuoteNumber } from '../service/utils';
+import { ensureClientFromLead } from '../../lib/clientUtils';
+import { buildInitialDraft } from '../service/utils';
 import '../mobile.css';
 import '../../styles/apple-mobile.css';
 
 const MobileCreateDevisPage: React.FC = () => {
   const navigate = useNavigate();
-  const clients = useAppData((state) => state.clients) || [];
-  const leads = useAppData((state) => state.leads) || [];
-  const services = useAppData((state) => state.services) || [];
-  const companies = useAppData((state) => state.companies) || [];
-  const categories = useAppData((state) => state.categories) || [];
-  const authUsers = useAppData((state) => state.authUsers) || [];
-  const activeCompanyId = useAppData((state) => state.activeCompanyId);
-  const vatEnabled = useAppData((state) => state.vatEnabled);
-  const vatRate = useAppData((state) => state.vatRate);
-  const addEngagement = useAppData((state) => state.addEngagement);
-  const currentUserId = useAppData((state) => state.currentUserId);
-  
-  // États du formulaire
-  const [draft, setDraft] = useState<EngagementDraft>(() => {
-    const initialDraft = buildInitialDraft(clients, services, companies, activeCompanyId);
-    return {
-      ...initialDraft,
-      kind: 'devis',
-      status: 'brouillon' as EngagementStatus,
-      assignedUserId: currentUserId || '',
-    };
-  });
-  const [internalNotes, setInternalNotes] = useState('');
-  const [contextType, setContextType] = useState<'client' | 'prospect' | null>(null);
-  const [clientId, setClientId] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string>('');
-  const [validationError, setValidationError] = useState<string | null>(null);
-  const [isCreating, setIsCreating] = useState(false);
-  
-  const [loadingClients, setLoadingClients] = useState(false);
-  const [loadingServices, setLoadingServices] = useState(false);
-  const [loadingCategories, setLoadingCategories] = useState(false);
-  
-  const hasLoadedRef = useRef(false);
+  const {
+    engagements,
+    clients,
+    services,
+    companies,
+    categories,
+    leads,
+    activeCompanyId,
+    addEngagement,
+    addClient,
+    addClientContact,
+    addLead,
+    vatEnabled,
+    vatRate,
+    userProfile,
+    projectMembers,
+    authUsers,
+  } = useAppData();
 
-  // Charger les données nécessaires
+  const clientsById = useEntityMaps(clients);
+  const servicesById = useEntityMaps(services);
+  const companiesById = useEntityMaps(companies);
+
+  const [currentStep, setCurrentStep] = useState(1); // 1: Contexte, 2: Prestations, 3: Planification
+  const [creationDraft, setCreationDraft] = useState<any>(null);
+  const [selectedClientOrLeadType, setSelectedClientOrLeadType] = useState<'client' | 'lead' | null>(null);
+  const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
+  const [selectedServices, setSelectedServices] = useState<Array<{
+    serviceId: string;
+    optionIds: string[];
+    optionOverrides: Record<string, EngagementOptionOverride>;
+    supportType: SupportType;
+    supportDetail: string;
+    mainCategoryId?: string;
+    subCategoryId?: string;
+    quantity?: number;
+  }>>([]);
+  const [createQuoteError, setCreateQuoteError] = useState<string | null>(null);
+  // États pour l'étape 2 : sélection de prestations
+  const [step2SelectedCategory, setStep2SelectedCategory] = useState<string>('');
+  const [step2SelectedSubCategoryId, setStep2SelectedSubCategoryId] = useState<string>('');
+  const [step2SelectedServiceId, setStep2SelectedServiceId] = useState<string>('');
+  const [step2SelectedOptionIds, setStep2SelectedOptionIds] = useState<string[]>([]);
+  const [step2SupportDetail, setStep2SupportDetail] = useState<string>('');
+  const step2DataLoadedRef = useRef(false);
+
+  // Initialiser le draft au montage
   useEffect(() => {
-    if (hasLoadedRef.current) return;
-    hasLoadedRef.current = true;
+    const currentState = useAppData.getState();
+    const currentServices = currentState.services || services;
+    const currentClients = currentState.clients || clients;
+    const currentCompanies = currentState.companies || companies;
 
+    const draft = buildInitialDraft(currentClients, currentServices, currentCompanies, activeCompanyId);
+    draft.kind = 'devis';
+    draft.status = 'brouillon';
+    draft.clientId = '';
+    draft.serviceId = '';
+    draft.contactIds = [];
+    draft.assignedUserIds = [];
+    setCreationDraft(draft);
+    
+    // Charger les services et catégories si nécessaire
     const loadData = async () => {
-      if (clients.length === 0) {
-        setLoadingClients(true);
-        try {
-          await ClientService.getClients();
-        } catch (err) {
-          console.error('Erreur chargement clients:', err);
-        } finally {
-          setLoadingClients(false);
+      if (currentServices.length === 0) {
+        const { ServiceService } = await import('../../api');
+        const servicesResult = await ServiceService.getServices();
+        if (servicesResult.success && Array.isArray(servicesResult.data)) {
+          useAppData.setState({ services: servicesResult.data });
         }
       }
-
-      if (services.length === 0) {
-        setLoadingServices(true);
-        try {
-          await ServiceService.getAll();
-        } catch (err) {
-          console.error('Erreur chargement services:', err);
-        } finally {
-          setLoadingServices(false);
-        }
-      }
-
-      if (categories.length === 0) {
-        setLoadingCategories(true);
-        try {
-          await CategoryService.getCategories();
-        } catch (err) {
-          console.error('Erreur chargement catégories:', err);
-        } finally {
-          setLoadingCategories(false);
+      
+      if (activeCompanyId && categories.length === 0) {
+        const { CategoryService } = await import('../../api');
+        const categoriesResult = await CategoryService.getCategories();
+        if (categoriesResult.success && Array.isArray(categoriesResult.data)) {
+          useAppData.setState({ categories: categoriesResult.data });
         }
       }
     };
-
     loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Mettre à jour draft.clientId quand clientId change
-  useEffect(() => {
-    if (clientId) {
-      setDraft(prev => {
-        const updated = { ...prev, clientId };
-        // Définir l'entreprise par défaut si nécessaire
-        if (!updated.companyId && activeCompanyId) {
-          updated.companyId = activeCompanyId;
-        }
-        return updated;
+  // Fonction pour convertir un lead en client
+  const ensureClientFromLeadWrapper = useCallback((lead: Lead): Client => {
+    try {
+      return ensureClientFromLead(lead, {
+        clients,
+        addClient,
+        addClientContact,
+        setClientBillingContact: undefined,
+        restoreClientContact: undefined,
+        getClient: undefined,
       });
+    } catch (error) {
+      console.error('Erreur lors de la conversion du lead en client:', error);
+      throw error;
     }
-  }, [clientId, activeCompanyId]);
+  }, [clients, addClient, addClientContact]);
 
-  // Calculs dérivés
-  const selectedClient = useMemo(
-    () => clients.find((c) => c.id === draft.clientId) ?? null,
-    [clients, draft.clientId]
-  );
-
-  const selectedService = useMemo(
-    () => services.find((s) => s.id === draft.serviceId) ?? null,
-    [services, draft.serviceId]
-  );
-
-  const selectedCompany = useMemo(() => {
-    if (draft.companyId) {
-      return companies.find((c) => c.id === draft.companyId) ?? null;
+  const handleClientOrLeadSelect = useCallback((result: { id: string; type: 'client' | 'lead'; data: Client | Lead }) => {
+    try {
+      if (result.type === 'lead') {
+        const lead = result.data as Lead;
+        const client = ensureClientFromLeadWrapper(lead);
+        setSelectedClientOrLeadType('lead');
+        setSelectedLeadId(lead.id);
+        setCreationDraft((draft) => {
+          if (!draft) return null;
+          return { ...draft, clientId: client.id };
+        });
+      } else {
+        const client = result.data as Client;
+        setSelectedClientOrLeadType('client');
+        setSelectedLeadId(null);
+        setCreationDraft((draft) => {
+          if (!draft) return null;
+          return { ...draft, clientId: client.id };
+        });
+      }
+      setCreateQuoteError(null);
+    } catch (error) {
+      console.error('[MobileCreateDevisPage] Erreur lors de la sélection du client/prospect:', error);
+      setCreateQuoteError(`Erreur lors de la sélection: ${error instanceof Error ? error.message : 'Erreur inconnue'}`);
     }
-    if (activeCompanyId) {
-      return companies.find((c) => c.id === activeCompanyId) ?? null;
+  }, [ensureClientFromLeadWrapper]);
+
+  const nextStep = () => {
+    // Validation de l'étape 1
+    if (currentStep === 1) {
+      if (!creationDraft?.clientId) {
+        setCreateQuoteError('Veuillez sélectionner un client ou un prospect.');
+        return;
+      }
+      if (!creationDraft?.companyId) {
+        setCreateQuoteError('Veuillez sélectionner une entreprise.');
+        return;
+      }
     }
-    return null;
-  }, [companies, draft.companyId, activeCompanyId]);
-
-  // Calcul du preview engagement
-  const previewEngagement = useMemo(() => {
-    if (!draft.serviceId || !draft.clientId) return null;
-    return buildPreviewEngagement(draft, 'devis');
-  }, [draft]);
-
-  // Calcul des totaux
-  const totals = useMemo(() => {
-    if (!previewEngagement) return { price: 0, duration: 0, surcharge: draft.additionalCharge || 0 };
-    return computeEngagementTotals(previewEngagement);
-  }, [previewEngagement, draft.additionalCharge]);
-
-  // Calcul du prix de base
-  const basePrice = useMemo(() => {
-    if (!selectedService) return 0;
-    return totals.price;
-  }, [selectedService, totals.price]);
-
-  // Calcul du prix final
-  const finalPrice = useMemo(() => {
-    return basePrice + (draft.additionalCharge || 0);
-  }, [basePrice, draft.additionalCharge]);
-
-  // TVA
-  const vatEnabledForQuote = selectedCompany?.vatEnabled ?? vatEnabled;
-  const vatAmount = vatEnabledForQuote ? finalPrice * (vatRate / 100) : 0;
-  const finalPriceWithVat = finalPrice + vatAmount;
-
-  // Durée estimée
-  const estimatedDuration = totals.duration;
-
-  // Calcul de l'heure de fin
-  const endTime = useMemo(() => {
-    if (!draft.startTime || !estimatedDuration) return '';
-    const [hours, minutes] = draft.startTime.split(':').map(Number);
-    const startMinutes = hours * 60 + minutes;
-    const endMinutes = startMinutes + estimatedDuration;
-    const endHours = Math.floor(endMinutes / 60);
-    const endMins = endMinutes % 60;
-    return `${endHours.toString().padStart(2, '0')}:${endMins.toString().padStart(2, '0')}`;
-  }, [draft.startTime, estimatedDuration]);
-
-  // Adresse d'intervention
-  const interventionAddress = useMemo(() => {
-    if (selectedClient?.address) {
-      return `${selectedClient.address}${selectedClient.city ? `, ${selectedClient.city}` : ''}`;
+    
+    // Validation de l'étape 2
+    if (currentStep === 2) {
+      if (selectedServices.length === 0) {
+        setCreateQuoteError('Veuillez ajouter au moins une prestation.');
+        return;
+      }
     }
-    return '';
-  }, [selectedClient]);
-
-  // Services filtrés par catégorie
-  const filteredServices = useMemo(() => {
-    if (selectedCategory) {
-      return services.filter((s) => s.category === selectedCategory && s.active);
-    }
-    if (selectedService?.category) {
-      return services.filter((s) => s.category === selectedService.category && s.active);
-    }
-    return services.filter((s) => s.active);
-  }, [services, selectedCategory, selectedService]);
-
-  // Gestion du changement de catégorie
-  const handleCategoryChange = (categoryName: string) => {
-    setSelectedCategory(categoryName);
-    if (!categoryName) {
-      setDraft(prev => ({
-        ...prev,
-        serviceId: '',
-        optionIds: [],
-        optionOverrides: {},
-      }));
-      return;
-    }
-
-    const firstServiceInCategory = services.find(
-      (s) => s.category === categoryName && s.active
-    );
-    if (firstServiceInCategory) {
-      const supportType = (categoryName === 'Autre' ? 'Textile' : categoryName) as SupportType;
-      setDraft(prev => ({
-        ...prev,
-        serviceId: firstServiceInCategory.id,
-        optionIds: [],
-        optionOverrides: {},
-        supportType,
-      }));
+    
+    if (currentStep < 3) {
+      setCurrentStep(currentStep + 1);
+      setCreateQuoteError(null);
     }
   };
 
-  // Gestion du changement de service
-  const handleServiceChange = (serviceId: string) => {
-    const service = services.find((s) => s.id === serviceId);
-    if (service) {
-      const supportType = (service.category === 'Autre' ? 'Textile' : service.category) as SupportType;
-      setDraft(prev => ({
-        ...prev,
-        serviceId,
-        optionIds: [],
-        optionOverrides: {},
-        supportType,
-      }));
-    } else {
-      setDraft(prev => ({
-        ...prev,
-        serviceId,
-        optionIds: [],
-        optionOverrides: {},
-      }));
+  const previousStep = () => {
+    if (currentStep > 1) {
+      setCurrentStep(currentStep - 1);
+      setCreateQuoteError(null);
     }
   };
 
-  // Validation
-  const validate = useCallback((): string | null => {
-    if (!draft.clientId) {
-      return 'Le client est obligatoire.';
-    }
-    if (!draft.serviceId) {
-      return 'Le produit/prestation est obligatoire.';
-    }
-    if (!draft.companyId) {
-      return "L'entreprise rattachée est obligatoire.";
-    }
-    if (selectedService?.options.some((opt) => opt.id && draft.optionIds.includes(opt.id)) && !draft.supportType) {
-      return 'Le type de support est obligatoire pour ce produit.';
-    }
-    if (!draft.scheduledAt) {
-      return 'La date d\'intervention est obligatoire.';
-    }
-    if (!draft.assignedUserId) {
-      return 'L\'intervenant assigné est obligatoire.';
-    }
-    if (!draft.status) {
-      return 'Le statut du service est obligatoire.';
-    }
-    return null;
-  }, [draft, selectedService]);
-
-  // Création du devis
-  const handleCreate = useCallback(async () => {
-    const error = validate();
-    if (error) {
-      setValidationError(error);
+  // Fonctions pour gérer les prestations dans l'étape 2
+  const handleAddServiceToStep2 = () => {
+    if (!step2SelectedServiceId) {
+      setCreateQuoteError('Veuillez sélectionner une prestation.');
       return;
     }
 
-    setIsCreating(true);
-    setValidationError(null);
+    const service = services.find((s) => s.id === step2SelectedServiceId);
+    if (!service) {
+      setCreateQuoteError('Prestation introuvable.');
+      return;
+    }
+
+    if (selectedServices.some(s => s.serviceId === step2SelectedServiceId)) {
+      setCreateQuoteError('Cette prestation est déjà dans la liste.');
+      return;
+    }
+
+    let mainCategoryId: string | undefined = undefined;
+    if (step2SelectedCategory) {
+      const mainCategory = categories.find((cat) => cat.name === step2SelectedCategory && !cat.parentId);
+      if (mainCategory) {
+        mainCategoryId = mainCategory.id;
+      }
+    }
+
+    const autoSupportType = (service.category === 'Autre' ? 'Textile' : service.category) as SupportType;
+
+    const newService = {
+      serviceId: step2SelectedServiceId,
+      optionIds: [...step2SelectedOptionIds],
+      optionOverrides: {},
+      supportType: autoSupportType,
+      supportDetail: step2SupportDetail.trim(),
+      mainCategoryId: mainCategoryId,
+      subCategoryId: step2SelectedSubCategoryId || undefined,
+    };
+
+    setSelectedServices([...selectedServices, newService]);
+    setCreateQuoteError(null);
+    
+    setStep2SelectedCategory('');
+    setStep2SelectedSubCategoryId('');
+    setStep2SelectedServiceId('');
+    setStep2SelectedOptionIds([]);
+    setStep2SupportDetail('');
+  };
+
+  const handleRemoveServiceFromStep2 = (index: number) => {
+    setSelectedServices(selectedServices.filter((_, i) => i !== index));
+  };
+
+  // S'assurer que les services et catégories sont chargés quand on arrive à l'étape 2
+  React.useEffect(() => {
+    if (currentStep === 2 && !step2DataLoadedRef.current) {
+      step2DataLoadedRef.current = true;
+      const loadDataForStep2 = async () => {
+        const currentState = useAppData.getState();
+        const currentServices = currentState.services || [];
+        const currentCategories = currentState.categories || [];
+
+        if (currentServices.length === 0) {
+          const { ServiceService } = await import('../../api');
+          const servicesResult = await ServiceService.getServices();
+          if (servicesResult.success && Array.isArray(servicesResult.data)) {
+            useAppData.setState({ services: servicesResult.data });
+          }
+        }
+        
+        if (activeCompanyId && currentCategories.length === 0) {
+          const { CategoryService } = await import('../../api');
+          const categoriesResult = await CategoryService.getCategories();
+          if (categoriesResult.success && Array.isArray(categoriesResult.data)) {
+            useAppData.setState({ categories: categoriesResult.data });
+          }
+        }
+      };
+      loadDataForStep2();
+    }
+    
+    if (currentStep !== 2) {
+      step2DataLoadedRef.current = false;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentStep, activeCompanyId]);
+
+  // Sélection automatique des options actives quand un service est sélectionné dans l'étape 2
+  React.useEffect(() => {
+    if (step2SelectedServiceId) {
+      const service = services.find((s) => s.id === step2SelectedServiceId);
+      if (service) {
+        const activeOptionIds = service.options
+          .filter(opt => opt.active)
+          .map(opt => opt.id);
+        if (activeOptionIds.length > 0 && JSON.stringify(step2SelectedOptionIds) !== JSON.stringify(activeOptionIds)) {
+          setStep2SelectedOptionIds(activeOptionIds);
+        }
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step2SelectedServiceId]);
+
+  const handleCreateQuote = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCreateQuoteError(null);
+
+    if (!creationDraft) {
+      setCreateQuoteError('Erreur: données du devis manquantes.');
+      return;
+    }
+
+    if (!creationDraft.clientId) {
+      setCreateQuoteError('Veuillez sélectionner un client ou un prospect.');
+      return;
+    }
+
+    if (selectedServices.length === 0) {
+      setCreateQuoteError('Veuillez ajouter au moins une prestation.');
+      return;
+    }
 
     try {
-      const finalDraft: EngagementDraft = {
-        ...draft,
-        kind: 'devis',
-        status: 'brouillon' as EngagementStatus,
-        assignedUserId: draft.assignedUserId || currentUserId || '',
-      };
+      const client = clientsById.get(creationDraft.clientId);
+      if (!client) {
+        setCreateQuoteError('Client introuvable.');
+        return;
+      }
 
-      // Convertir le draft en Engagement pour addEngagement
-      const previewEngagement = buildPreviewEngagement(finalDraft, 'devis');
+      const companyId = creationDraft.companyId || activeCompanyId;
+      if (!companyId) {
+        setCreateQuoteError('Aucune entreprise sélectionnée.');
+        return;
+      }
+
+      const company = companiesById.get(companyId);
+      if (!company) {
+        setCreateQuoteError('Entreprise introuvable.');
+        return;
+      }
+
+      let engagementServices: any[] = [];
+      let firstService: any = null;
+      let firstServiceObj: Service | undefined = undefined;
+
+      if (selectedServices.length > 0) {
+        engagementServices = selectedServices
+          .filter((sel) => !(sel as any).isSubCategoryRow)
+          .map((sel) => {
+            const service = servicesById.get(sel.serviceId);
+            const supportType = sel.supportType || (service?.category === 'Autre' ? 'Textile' : service?.category) || 'Voiture';
+            
+            return {
+              serviceId: sel.serviceId,
+              optionIds: sel.optionIds || [],
+              optionOverrides: sel.optionOverrides || {},
+              supportType: supportType as SupportType,
+              supportDetail: (sel.supportDetail || '').trim(),
+              mainCategoryId: sel.mainCategoryId,
+              subCategoryId: sel.subCategoryId,
+              quantity: sel.quantity ?? 1,
+            };
+          });
+
+        if (engagementServices.length > 0) {
+          firstService = engagementServices[0];
+          firstServiceObj = servicesById.get(firstService.serviceId);
+        }
+      }
+
+      if (!firstServiceObj && services.length > 0) {
+        const defaultService = services[0];
+        firstServiceObj = defaultService;
+        firstService = {
+          serviceId: defaultService.id,
+          optionIds: [],
+          optionOverrides: {},
+          supportType: 'Voiture' as SupportType,
+          supportDetail: '',
+          quantity: 1,
+        };
+      }
+
+      if (!firstServiceObj) {
+        setCreateQuoteError('Aucun service disponible. Veuillez créer des services d\'abord.');
+        return;
+      }
+
+      const vatEnabledForQuote = company.vatEnabled ?? vatEnabled;
       
-      // Créer l'objet pour addEngagement (sans id, avec assignedUserIds)
-      const { id, ...engagementData } = previewEngagement;
-      const engagementForAdd = {
-        ...engagementData,
-        assignedUserIds: previewEngagement.assignedUserIds || (finalDraft.assignedUserId ? [finalDraft.assignedUserId] : []),
-      };
-      
-      addEngagement(engagementForAdd);
+      const hasPlanning = creationDraft.scheduledAt && creationDraft.scheduledAt.trim() !== '';
+      const planningUser = hasPlanning && creationDraft.planningUser && creationDraft.planningUser.trim() 
+        ? creationDraft.planningUser 
+        : null;
+      const startTime = hasPlanning && creationDraft.startTime && creationDraft.startTime.trim() 
+        ? creationDraft.startTime 
+        : null;
+
+      const scheduledAtValue = hasPlanning && creationDraft.scheduledAt && creationDraft.scheduledAt.trim() !== ''
+        ? creationDraft.scheduledAt
+        : new Date().toISOString();
+
+      const contactIds = client.contacts?.find(c => c.active && c.isBillingDefault) 
+        ? [client.contacts.find(c => c.active && c.isBillingDefault)!.id]
+        : [];
+
+      const baseQuoteNumber = getNextQuoteNumber(engagements.filter(e => e.kind === 'devis'), new Date());
+      const newEngagement = addEngagement({
+        kind: 'devis',
+        status: 'brouillon',
+        clientId: creationDraft.clientId,
+        serviceId: firstService.serviceId,
+        optionIds: firstService.optionIds || [],
+        optionOverrides: firstService.optionOverrides || {},
+        scheduledAt: scheduledAtValue,
+        companyId: companyId,
+        supportType: firstService.supportType || 'Voiture',
+        supportDetail: firstService.supportDetail || '',
+        contactIds: contactIds,
+        assignedUserIds: creationDraft.assignedUserIds || [],
+        planningUser: planningUser,
+        startTime: startTime,
+        invoiceVatEnabled: vatEnabledForQuote,
+        quoteName: (creationDraft.quoteName?.trim()) || null,
+        quoteStatus: 'brouillon',
+        quoteNumber: baseQuoteNumber,
+        services: engagementServices.length > 0 ? engagementServices : undefined,
+      });
+
+      try {
+        await AppointmentService.create(newEngagement);
+      } catch (error) {
+        console.error('Erreur lors de la synchronisation avec le backend:', error);
+      }
+
       navigate('/mobile/devis', { replace: true });
-    } catch (err: any) {
-      setValidationError(err.message || 'Erreur lors de la création du devis');
-      setIsCreating(false);
+    } catch (error: any) {
+      setCreateQuoteError(error?.message || 'Erreur lors de la création du devis.');
     }
-  }, [draft, validate, addEngagement, navigate, currentUserId]);
+  };
+
+  const step2SelectedService = services.find((s) => s.id === step2SelectedServiceId);
+
+  if (!creationDraft) {
+    return (
+      <div style={{ padding: 'var(--space-xl)', textAlign: 'center', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div>Chargement...</div>
+      </div>
+    );
+  }
 
   return (
-    <div className="modern-text" style={{
-      padding: '0 var(--space-xl)',
-      width: '100%',
-      background: 'var(--bg)',
-      minHeight: '100vh',
-      paddingBottom: '120px',
-    }}>
-      {/* Header */}
-      <div style={{
-        paddingTop: 'var(--space-md)',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 'var(--space-md)',
-        marginBottom: 'var(--space-lg)',
-      }}>
+    <>
+      {/* Élément invisible pour la détection par la navbar */}
+      <div data-mobile-modal="true" style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', width: 0, height: 0, overflow: 'hidden' }}>
         <button
-          onClick={() => navigate('/mobile/devis')}
-          style={{
-            padding: '8px',
-            background: 'transparent',
-            border: 'none',
-            borderRadius: 'var(--radius-md)',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: 'var(--text)',
-          }}
+          type="button"
+          data-modal-action="cancel"
+          onClick={currentStep > 1 ? previousStep : () => navigate('/mobile/devis')}
         >
-          <ArrowBack style={{ fontSize: '20px' }} />
+          {currentStep > 1 ? 'Précédent' : 'Annuler'}
         </button>
-        <h1 style={{
-          margin: 0,
-          fontSize: '20px',
-          fontWeight: '700',
-          color: 'var(--text)',
-          flex: 1,
-        }}>
-          Nouveau devis
-        </h1>
+        <button
+          type="button"
+          data-modal-action="submit"
+          onClick={currentStep < 3 ? nextStep : handleCreateQuote}
+        >
+          {currentStep < 3 ? 'Suivant' : 'Créer'}
+        </button>
       </div>
 
-      {/* Message d'erreur */}
-      {validationError && (
-        <div style={{
-          padding: 'var(--space-md)',
-          marginBottom: 'var(--space-md)',
-          background: 'rgba(239, 68, 68, 0.1)',
-          borderRadius: 'var(--radius-md)',
-          color: '#dc2626',
-          fontSize: '13px',
-        }}>
-          {validationError}
-        </div>
-      )}
-
-      {/* Formulaire */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-lg)' }}>
-        
-        {/* SECTION 1: QUI - Client & Entreprise */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
-          <h2 style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text)', marginBottom: 'var(--space-xs)' }}>
-            Client & Entreprise
-          </h2>
-
-          {/* Client ou Prospect */}
-          <div>
-            <label style={{
-              display: 'block',
-              marginBottom: '6px',
-              fontSize: '11px',
-              fontWeight: '600',
-              color: 'var(--muted)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px',
-            }}>
-              Client ou Prospect <span style={{ color: '#dc2626' }}>*</span>
-            </label>
-            <div style={{ display: 'flex', gap: '6px', background: 'var(--bg-secondary)', padding: '3px', borderRadius: 'var(--radius-md)' }}>
-              <button
-                type="button"
-                onClick={() => {
-                  setContextType('client');
-                  setClientId('');
-                }}
-                style={{
-                  flex: 1,
-                  padding: '8px 12px',
-                  borderRadius: 'var(--radius-sm)',
-                  border: 'none',
-                  background: contextType === 'client' ? '#9333ea' : 'transparent',
-                  color: contextType === 'client' ? 'white' : 'var(--text)',
-                  fontSize: '13px',
-                  fontWeight: '500',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                }}
-              >
-                Client
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setContextType('prospect');
-                  setClientId('');
-                }}
-                style={{
-                  flex: 1,
-                  padding: '8px 12px',
-                  borderRadius: 'var(--radius-sm)',
-                  border: 'none',
-                  background: contextType === 'prospect' ? '#3b82f6' : 'transparent',
-                  color: contextType === 'prospect' ? 'white' : 'var(--text)',
-                  fontSize: '13px',
-                  fontWeight: '500',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                }}
-              >
-                Prospect
-              </button>
-            </div>
+      <div style={{
+        width: '100%',
+        maxWidth: '100%',
+        padding: 'var(--space-md)',
+        background: 'var(--bg)',
+        minHeight: '100vh',
+        boxSizing: 'border-box',
+      }}>
+        {createQuoteError && (
+          <div style={{
+            padding: 'var(--space-sm) var(--space-md)',
+            marginBottom: 'var(--space-md)',
+            background: 'rgba(239, 68, 68, 0.1)',
+            borderRadius: 'var(--radius-md)',
+            color: '#dc2626',
+            fontSize: '12px',
+          }}>
+            {createQuoteError}
           </div>
+        )}
 
-          {contextType && (
-            <div>
-              <ClientLeadSearch
-                clients={contextType === 'client' ? clients : []}
-                leads={contextType === 'prospect' ? leads : []}
-                value={clientId}
-                onChange={(id) => setClientId(id)}
-                required
-                searchMode={contextType === 'client' ? 'client' : 'lead'}
-                loadingClients={loadingClients}
-                loadingLeads={false}
-              />
+        {/* Indicateur d'étapes */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 'var(--space-xl)', position: 'relative', padding: '0 var(--space-xs)' }}>
+          {[1, 2, 3].map((step) => (
+            <div key={step} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative' }}>
+              <div style={{
+                width: '28px',
+                height: '28px',
+                borderRadius: '50%',
+                background: currentStep >= step ? 'var(--accent)' : 'var(--bg-secondary)',
+                color: currentStep >= step ? 'white' : 'var(--muted)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '12px',
+                fontWeight: '700',
+                zIndex: 2,
+              }}>
+                {currentStep > step ? '✓' : step}
+              </div>
+              <div style={{
+                fontSize: '9px',
+                marginTop: '4px',
+                color: currentStep >= step ? 'var(--accent)' : 'var(--muted)',
+                fontWeight: currentStep === step ? '700' : '500',
+                textAlign: 'center',
+              }}>
+                {step === 1 ? 'Contexte' : step === 2 ? 'Prestations' : 'Planification'}
+              </div>
+              {step < 3 && (
+                <div style={{
+                  position: 'absolute',
+                  top: '14px',
+                  left: '50%',
+                  width: '100%',
+                  height: '2px',
+                  background: currentStep > step ? 'var(--accent)' : 'var(--bg-secondary)',
+                  zIndex: 1,
+                }} />
+              )}
             </div>
-          )}
-
-          {/* Entreprise */}
-          <div>
-            <label style={{
-              display: 'block',
-              marginBottom: '6px',
-              fontSize: '11px',
-              fontWeight: '600',
-              color: 'var(--muted)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px',
-            }}>
-              Entreprise <span style={{ color: '#dc2626' }}>*</span>
-            </label>
-            <select
-              value={draft.companyId}
-              onChange={(e) => setDraft(prev => ({ ...prev, companyId: e.target.value }))}
-              required
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--border)',
-                background: 'var(--surface)',
-                color: 'var(--text)',
-                fontSize: '15px',
-              }}
-            >
-              <option value="">Sélectionner…</option>
-              {companies.map((company) => (
-                <option key={company.id} value={company.id}>
-                  {company.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          ))}
         </div>
 
-        {/* SECTION 2: QUOI - Produit & Support */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
-          <h2 style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text)', marginBottom: 'var(--space-xs)' }}>
-            Prestation
-          </h2>
-
-          {/* Catégorie */}
-          <div>
-            <label style={{
-              display: 'block',
-              marginBottom: '6px',
-              fontSize: '11px',
-              fontWeight: '600',
-              color: 'var(--muted)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px',
-            }}>
-              Catégorie
-            </label>
-            <select
-              value={selectedCategory || selectedService?.category || ''}
-              onChange={(e) => handleCategoryChange(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--border)',
-                background: 'var(--surface)',
-                color: 'var(--text)',
-                fontSize: '15px',
-              }}
-            >
-              <option value="">Toutes</option>
-              {categories
-                .filter((cat) => cat.active)
-                .map((category) => (
-                  <option key={category.id} value={category.name}>
-                    {category.name}
-                  </option>
-                ))}
-            </select>
-          </div>
-
-          {/* Produit / Prestation */}
-          <div>
-            <label style={{
-              display: 'block',
-              marginBottom: '6px',
-              fontSize: '11px',
-              fontWeight: '600',
-              color: 'var(--muted)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px',
-            }}>
-              Produit / Prestation <span style={{ color: '#dc2626' }}>*</span>
-            </label>
-            <select
-              value={draft.serviceId}
-              onChange={(e) => handleServiceChange(e.target.value)}
-              required
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--border)',
-                background: 'var(--surface)',
-                color: 'var(--text)',
-                fontSize: '15px',
-              }}
-            >
-              <option value="">Sélectionner…</option>
-              {filteredServices.map((service) => (
-                <option key={service.id} value={service.id}>
-                  {service.name}
-                </option>
-              ))}
-            </select>
-            {selectedService && (
-              <p style={{ fontSize: '10px', color: 'var(--muted)', marginTop: '4px' }}>
-                Prix, durée et support déterminés automatiquement
-              </p>
-            )}
-          </div>
-
-          {/* Support (affiché uniquement si le produit le nécessite) */}
-          {selectedService && (
+          {/* Étape 1 : Contexte */}
+          {currentStep === 1 && (
             <>
+              {/* Client / Prospect */}
               <div>
-                <label style={{
-                  display: 'block',
-                  marginBottom: '6px',
-                  fontSize: '11px',
-                  fontWeight: '600',
-                  color: 'var(--muted)',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.5px',
+                <label style={{ 
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  marginBottom: '4px', 
+                  fontSize: '9px', 
+                  fontWeight: '600', 
+                  color: 'var(--muted)', 
+                  textTransform: 'uppercase', 
+                  letterSpacing: '0.5px' 
                 }}>
-                  Support <span style={{ color: '#dc2626' }}>*</span>
+                  <Search size={10} />
+                  Client / Prospect *
+                </label>
+                <ClientLeadSearch
+                  clients={clients}
+                  leads={leads}
+                  value={creationDraft.clientId}
+                  onChange={(value) => {
+                    if (!value) {
+                      setCreationDraft((draft) => draft ? ({ ...draft, clientId: '' }) : null);
+                      setSelectedLeadId(null);
+                      setSelectedClientOrLeadType(null);
+                    } else {
+                      setCreationDraft((draft) => draft ? ({ ...draft, clientId: value }) : null);
+                    }
+                  }}
+                  onSelect={handleClientOrLeadSelect}
+                  placeholder="Rechercher un client ou un prospect..."
+                  required={!creationDraft.clientId}
+                />
+              </div>
+
+              {/* Entreprise */}
+              <div>
+                <label style={{ 
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  marginBottom: '4px', 
+                  fontSize: '9px', 
+                  fontWeight: '600', 
+                  color: 'var(--muted)', 
+                  textTransform: 'uppercase', 
+                  letterSpacing: '0.5px' 
+                }}>
+                  <Building2 size={10} />
+                  Entreprise *
                 </label>
                 <select
-                  value={draft.supportType}
-                  onChange={(e) => setDraft(prev => ({ ...prev, supportType: e.target.value as SupportType }))}
+                  value={creationDraft.companyId || ''}
+                  onChange={(e) => setCreationDraft((draft) => draft ? ({ ...draft, companyId: e.target.value }) : null)}
                   required
                   style={{
                     width: '100%',
-                    padding: '10px 12px',
+                    padding: '8px 10px',
                     borderRadius: 'var(--radius-md)',
                     border: '1px solid var(--border)',
                     background: 'var(--surface)',
                     color: 'var(--text)',
-                    fontSize: '15px',
+                    fontSize: '13px',
                   }}
                 >
-                  {categories
-                    .filter((cat) => cat.active)
-                    .map((category) => (
-                      <option key={category.id} value={category.name}>
-                        {category.name}
-                      </option>
-                    ))}
+                  <option value="">Sélectionner une entreprise…</option>
+                  {companies.map((company) => (
+                    <option key={company.id} value={company.id}>
+                      {company.name}
+                    </option>
+                  ))}
                 </select>
-                <p style={{ fontSize: '10px', color: 'var(--muted)', marginTop: '4px' }}>
-                  Déterminé automatiquement
-                </p>
               </div>
+
+              {/* Collaborateurs */}
               <div>
-                <label style={{
-                  display: 'block',
-                  marginBottom: '6px',
-                  fontSize: '11px',
-                  fontWeight: '600',
-                  color: 'var(--muted)',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.5px',
+                <label style={{ 
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  marginBottom: '4px', 
+                  fontSize: '9px', 
+                  fontWeight: '600', 
+                  color: 'var(--muted)', 
+                  textTransform: 'uppercase', 
+                  letterSpacing: '0.5px' 
                 }}>
-                  Détail support
+                  <Users size={10} />
+                  Collaborateurs
+                </label>
+                {(() => {
+                  const selectedCompanyId = creationDraft?.companyId || '';
+                  const teamMembers = selectedCompanyId
+                    ? projectMembers.filter((member) => member.companyId === selectedCompanyId)
+                    : [];
+                  
+                  if (!selectedCompanyId) {
+                    return (
+                      <div style={{
+                        padding: '8px 10px',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--border)',
+                        background: 'var(--bg-secondary)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        color: 'var(--muted)',
+                        fontSize: '12px',
+                      }}>
+                        <Info size={12} />
+                        <span>Sélectionnez d'abord une entreprise</span>
+                      </div>
+                    );
+                  }
+                  
+                  if (teamMembers.length === 0) {
+                    return (
+                      <div style={{
+                        padding: '8px 10px',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--border)',
+                        background: 'var(--bg-secondary)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        color: 'var(--muted)',
+                        fontSize: '12px',
+                      }}>
+                        <Users size={12} />
+                        <span>Aucun membre d'équipe</span>
+                      </div>
+                    );
+                  }
+                  
+                  return (
+                    <div style={{
+                      maxHeight: '100px',
+                      overflowY: 'auto',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--border)',
+                      background: 'var(--surface)',
+                      padding: '6px',
+                    }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        {teamMembers.map((member) => {
+                          const isSelected = (creationDraft?.assignedUserIds || []).includes(member.id);
+                          return (
+                            <label
+                              key={member.id}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                padding: '4px 6px',
+                                borderRadius: 'var(--radius-sm)',
+                                background: isSelected ? 'rgba(var(--accent-rgb), 0.1)' : 'transparent',
+                                border: isSelected ? '1px solid var(--accent)' : '1px solid transparent',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={(e) => {
+                                  const currentIds = creationDraft?.assignedUserIds || [];
+                                  const newIds = e.target.checked
+                                    ? [...currentIds, member.id]
+                                    : currentIds.filter((id) => id !== member.id);
+                                  setCreationDraft((draft) => draft ? ({ ...draft, assignedUserIds: newIds }) : null);
+                                }}
+                                style={{
+                                  width: '14px',
+                                  height: '14px',
+                                  accentColor: 'var(--accent)',
+                                }}
+                              />
+                              <span style={{ fontSize: '11px', fontWeight: '500', color: 'var(--text)' }}>
+                                {member.firstName} {member.lastName}
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Nom du devis */}
+              <div>
+                <label style={{ 
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  marginBottom: '4px', 
+                  fontSize: '9px', 
+                  fontWeight: '600', 
+                  color: 'var(--muted)', 
+                  textTransform: 'uppercase', 
+                  letterSpacing: '0.5px' 
+                }}>
+                  <FileText size={10} />
+                  Nom du devis
                 </label>
                 <input
                   type="text"
-                  value={draft.supportDetail}
-                  onChange={(e) => setDraft(prev => ({ ...prev, supportDetail: e.target.value }))}
-                  placeholder="Modèle, dimensions, couleur..."
+                  value={creationDraft?.quoteName || ''}
+                  onChange={(e) => setCreationDraft((draft) => draft ? ({ ...draft, quoteName: e.target.value }) : null)}
+                  placeholder="Ex: Nettoyage bureau..."
                   style={{
                     width: '100%',
-                    padding: '10px 12px',
+                    padding: '8px 10px',
                     borderRadius: 'var(--radius-md)',
                     border: '1px solid var(--border)',
                     background: 'var(--surface)',
                     color: 'var(--text)',
-                    fontSize: '15px',
+                    fontSize: '13px',
                   }}
                 />
               </div>
+
+              {/* Fiche de renseignement client/prospect */}
+              {creationDraft?.clientId && (() => {
+                const selectedClientId = creationDraft.clientId;
+                const client = clientsById.get(selectedClientId);
+                if (!client) return null;
+
+                const clientInList = clients.find(c => c.id === client.id);
+                const actualType = clientInList ? 'client' : (selectedLeadId ? 'lead' : 'client');
+                
+                const primaryContact = client.contacts?.find((c) => c.active && c.isBillingDefault) 
+                  || client.contacts?.find((c) => c.active) 
+                  || null;
+
+                const clientEngagements = engagements.filter(eng => eng.clientId === selectedClientId);
+                const clientQuotes = clientEngagements.filter(eng => eng.kind === 'devis');
+                const clientServices = clientEngagements.filter(eng => eng.kind !== 'devis');
+
+                return (
+                  <div style={{
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--border)',
+                    background: 'var(--surface)',
+                    padding: '8px',
+                    marginTop: '4px',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px', paddingBottom: '4px', borderBottom: '1px solid var(--border)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        {actualType === 'lead' ? (
+                          <UserPlus size={10} style={{ color: '#9333ea' }} />
+                        ) : (
+                          <Users size={10} style={{ color: '#2563eb' }} />
+                        )}
+                        <h3 style={{ margin: 0, fontSize: '10px', fontWeight: '700', color: 'var(--text)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                          {actualType === 'lead' ? 'Prospect' : 'Client'}
+                        </h3>
+                      </div>
+                      <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                        <span style={{
+                          padding: '2px 6px',
+                          borderRadius: 'var(--radius-sm)',
+                          fontSize: '8px',
+                          fontWeight: '600',
+                          background: (client.status === 'Actif' || client.status === 'Prospect') ? 'rgba(16, 185, 129, 0.1)' : 'rgba(249, 115, 22, 0.1)',
+                          color: (client.status === 'Actif' || client.status === 'Prospect') ? '#10b981' : '#f97316',
+                        }}>
+                          {client.status === 'Prospect' ? 'Actif' : client.status}
+                        </span>
+                        <span style={{ fontSize: '8px', color: 'var(--muted)' }}>
+                          {client.type === 'company' ? 'Pro' : 'Part'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <p style={{ margin: 0, fontSize: '12px', fontWeight: '700', color: 'var(--text)' }}>
+                        {client.name || client.companyName || '—'}
+                      </p>
+
+                      {(primaryContact || client.email || client.phone) && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                          {primaryContact && (
+                            <p style={{ margin: 0, fontSize: '10px', fontWeight: '600', color: 'var(--text)' }}>
+                              {primaryContact.firstName} {primaryContact.lastName}
+                            </p>
+                          )}
+                          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                            {(primaryContact?.email || client.email) && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                <Mail size={9} style={{ color: 'var(--muted)' }} />
+                                <span style={{ fontSize: '9px', color: 'var(--muted)' }}>
+                                  {primaryContact?.email || client.email}
+                                </span>
+                              </div>
+                            )}
+                            {(primaryContact?.mobile || client.phone) && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                <Phone size={9} style={{ color: 'var(--muted)' }} />
+                                <span style={{ fontSize: '9px', color: 'var(--muted)' }}>
+                                  {primaryContact?.mobile || client.phone}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      <div style={{ display: 'flex', gap: '10px', paddingTop: '4px', borderTop: '1px solid var(--border)' }}>
+                        <div>
+                          <span style={{ fontSize: '8px', color: 'var(--muted)' }}>Devis: </span>
+                          <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text)' }}>
+                            {clientQuotes.length}
+                          </span>
+                        </div>
+                        <div>
+                          <span style={{ fontSize: '8px', color: 'var(--muted)' }}>Services: </span>
+                          <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text)' }}>
+                            {clientServices.length}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </>
+          )}
+
+          {/* Étape 2 : Prestations */}
+          {currentStep === 2 && (
+            <>
+              {/* Liste des prestations sélectionnées */}
+              {selectedServices.length > 0 && (
+                <div>
+                  <label style={{ 
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    marginBottom: '4px', 
+                    fontSize: '9px', 
+                    fontWeight: '600', 
+                    color: 'var(--muted)', 
+                    textTransform: 'uppercase', 
+                    letterSpacing: '0.5px' 
+                  }}>
+                    Prestations sélectionnées ({selectedServices.length})
+                  </label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '12px' }}>
+                    {selectedServices.map((serviceItem, index) => {
+                      const service = servicesById.get(serviceItem.serviceId);
+                      
+                      const mainCategory = serviceItem.mainCategoryId
+                        ? categories.find((cat) => cat.id === serviceItem.mainCategoryId)
+                        : null;
+                      const subCategory = serviceItem.subCategoryId
+                        ? categories.find((cat) => cat.id === serviceItem.subCategoryId)
+                        : null;
+                      
+                      let servicePrice = 0;
+                      let serviceDuration = 0;
+                      
+                      if (service) {
+                        if ((service as any).base_price !== undefined && (service as any).base_price !== null) {
+                          servicePrice = (service as any).base_price;
+                        } else if (service.options && Array.isArray(service.options) && serviceItem.optionIds.length > 0) {
+                          servicePrice = service.options
+                            .filter(opt => serviceItem.optionIds.includes(opt.id))
+                            .reduce((sum, opt) => {
+                              const override = serviceItem.optionOverrides[opt.id];
+                              const price = override?.unitPriceHT ?? opt.unitPriceHT;
+                              const qty = override?.quantity ?? 1;
+                              return sum + (price * qty);
+                            }, 0);
+                        }
+                        
+                        if ((service as any).base_duration !== undefined && (service as any).base_duration !== null) {
+                          serviceDuration = (service as any).base_duration;
+                        } else if (service.options && Array.isArray(service.options) && serviceItem.optionIds.length > 0) {
+                          serviceDuration = service.options
+                            .filter(opt => serviceItem.optionIds.includes(opt.id))
+                            .reduce((sum, opt) => {
+                              const override = serviceItem.optionOverrides[opt.id];
+                              const duration = override?.durationMin ?? opt.defaultDurationMin ?? 0;
+                              const qty = override?.quantity ?? 1;
+                              return sum + (duration * qty);
+                            }, 0);
+                        }
+                      }
+                      
+                      const subCategoryPrice = subCategory?.priceHT || 0;
+                      const subCategoryDuration = (subCategory as any)?.defaultDurationMin || 0;
+                      
+                      const serviceQuantity = serviceItem.quantity ?? 1;
+                      const totalPrice = (servicePrice + subCategoryPrice) * serviceQuantity;
+                      const totalDuration = (serviceDuration + subCategoryDuration) * serviceQuantity;
+                      
+                      return (
+                        <div
+                          key={index}
+                          style={{
+                            padding: '10px',
+                            background: '#f8fafc',
+                            borderRadius: '8px',
+                            border: '1px solid #e2e8f0',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '6px',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: '13px', fontWeight: '700', color: '#0f172a', marginBottom: '3px' }}>
+                                {service?.name || 'Service inconnu'}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveServiceFromStep2(index)}
+                              style={{
+                                padding: '4px 8px',
+                                background: 'transparent',
+                                border: '1px solid #e2e8f0',
+                                borderRadius: '6px',
+                                color: '#ef4444',
+                                cursor: 'pointer',
+                                fontSize: '12px',
+                                fontWeight: '600',
+                                flexShrink: 0,
+                                minWidth: '28px',
+                                height: '28px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}
+                            >
+                              ×
+                            </button>
+                          </div>
+
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', alignItems: 'center' }}>
+                            {mainCategory && (
+                              <div style={{
+                                padding: '3px 6px',
+                                borderRadius: '4px',
+                                background: 'rgba(37, 99, 235, 0.1)',
+                                border: '1px solid rgba(37, 99, 235, 0.2)',
+                                fontSize: '10px',
+                                fontWeight: '600',
+                                color: '#2563eb',
+                              }}>
+                                {mainCategory.name}
+                              </div>
+                            )}
+                            {subCategory && (
+                              <div style={{
+                                padding: '3px 6px',
+                                borderRadius: '4px',
+                                background: 'rgba(147, 51, 234, 0.1)',
+                                border: '1px solid rgba(147, 51, 234, 0.2)',
+                                fontSize: '10px',
+                                fontWeight: '600',
+                                color: '#9333ea',
+                              }}>
+                                {subCategory.name}
+                              </div>
+                            )}
+                          </div>
+
+                          {serviceItem.supportDetail && (
+                            <div style={{
+                              padding: '6px',
+                              background: 'white',
+                              borderRadius: '6px',
+                              border: '1px solid #e2e8f0',
+                            }}>
+                              <div style={{ fontSize: '9px', fontWeight: '600', color: '#64748b', marginBottom: '3px', textTransform: 'uppercase' }}>
+                                Support
+                              </div>
+                              <div style={{ fontSize: '12px', color: '#0f172a' }}>
+                                {serviceItem.supportDetail}
+                              </div>
+                            </div>
+                          )}
+
+                          <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            padding: '8px',
+                            background: 'white',
+                            borderRadius: '6px',
+                            border: '1px solid #e2e8f0',
+                          }}>
+                            <div>
+                              <div style={{ fontSize: '9px', fontWeight: '600', color: '#64748b', marginBottom: '2px', textTransform: 'uppercase' }}>
+                                Prix
+                              </div>
+                              <div style={{ fontSize: '14px', fontWeight: '700', color: '#0f172a' }}>
+                                {formatCurrency(totalPrice)}
+                              </div>
+                            </div>
+                            <div style={{ textAlign: 'right' }}>
+                              <div style={{ fontSize: '9px', fontWeight: '600', color: '#64748b', marginBottom: '2px', textTransform: 'uppercase' }}>
+                                Durée
+                              </div>
+                              <div style={{ fontSize: '14px', fontWeight: '700', color: '#0f172a' }}>
+                                {formatDuration(totalDuration)}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Sélection de prestation */}
+              <div>
+                <label style={{ 
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  marginBottom: '4px', 
+                  fontSize: '9px', 
+                  fontWeight: '600', 
+                  color: 'var(--muted)', 
+                  textTransform: 'uppercase', 
+                  letterSpacing: '0.5px' 
+                }}>
+                  Catégorie
+                </label>
+                <select
+                  value={step2SelectedCategory || ''}
+                  onChange={(e) => {
+                    const categoryName = e.target.value;
+                    setStep2SelectedCategory(categoryName);
+                    setStep2SelectedSubCategoryId('');
+                    setStep2SelectedServiceId('');
+                    setStep2SelectedOptionIds([]);
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '8px 10px',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--border)',
+                    background: 'var(--surface)',
+                    color: 'var(--text)',
+                    fontSize: '13px',
+                  }}
+                >
+                  <option value="">Sélectionner une catégorie</option>
+                  {categories && Array.isArray(categories) && categories.length > 0 ? (
+                    categories
+                      .filter((cat) => cat.active !== false && !cat.parentId)
+                      .map((category) => (
+                        <option key={category.id} value={category.name}>
+                          {category.name}
+                        </option>
+                      ))
+                  ) : (
+                    <option value="" disabled>Aucune catégorie disponible</option>
+                  )}
+                </select>
+              </div>
+
+              {/* Sous-catégorie */}
+              {step2SelectedCategory && (() => {
+                const selectedMainCategory = categories.find((cat) => cat.name === step2SelectedCategory && !cat.parentId);
+                const subCategories = selectedMainCategory 
+                  ? categories.filter((cat) => cat.active !== false && cat.parentId === selectedMainCategory.id)
+                  : [];
+                
+                if (subCategories.length > 0) {
+                  return (
+                    <div>
+                      <label style={{ 
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        marginBottom: '4px', 
+                        fontSize: '9px', 
+                        fontWeight: '600', 
+                        color: 'var(--muted)', 
+                        textTransform: 'uppercase', 
+                        letterSpacing: '0.5px' 
+                      }}>
+                        Sous-catégorie
+                      </label>
+                      <select
+                        value={step2SelectedSubCategoryId}
+                        onChange={(e) => {
+                          setStep2SelectedSubCategoryId(e.target.value);
+                          setStep2SelectedServiceId('');
+                          setStep2SelectedOptionIds([]);
+                        }}
+                        style={{
+                          width: '100%',
+                          padding: '8px 10px',
+                          borderRadius: 'var(--radius-md)',
+                          border: '1px solid var(--border)',
+                          background: 'var(--surface)',
+                          color: 'var(--text)',
+                          fontSize: '13px',
+                        }}
+                      >
+                        <option value="">Toutes les sous-catégories</option>
+                        {subCategories.map((subCategory) => (
+                          <option key={subCategory.id} value={subCategory.id}>
+                            {subCategory.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+
+              <div>
+                <label style={{ 
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  marginBottom: '4px', 
+                  fontSize: '9px', 
+                  fontWeight: '600', 
+                  color: 'var(--muted)', 
+                  textTransform: 'uppercase', 
+                  letterSpacing: '0.5px' 
+                }}>
+                  Produits et services
+                </label>
+                <select
+                  value={step2SelectedServiceId}
+                  onChange={(e) => {
+                    const service = services.find((s) => s.id === e.target.value);
+                    if (service) {
+                      setStep2SelectedServiceId(e.target.value);
+                      const activeOptionIds = service.options
+                        .filter(opt => opt.active)
+                        .map(opt => opt.id);
+                      setStep2SelectedOptionIds(activeOptionIds);
+                    } else {
+                      setStep2SelectedServiceId(e.target.value);
+                      setStep2SelectedOptionIds([]);
+                    }
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '8px 10px',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--border)',
+                    background: 'var(--surface)',
+                    color: 'var(--text)',
+                    fontSize: '13px',
+                  }}
+                >
+                  <option value="">Sélectionner une prestation</option>
+                  {services && Array.isArray(services) && categories && Array.isArray(categories) && services.length > 0 ? (
+                    (() => {
+                      if (!step2SelectedCategory) {
+                        const allActiveServices = services.filter((s) => s.active !== false);
+                        return allActiveServices.length > 0 ? (
+                          allActiveServices.map((service) => (
+                            <option key={service.id} value={service.id}>
+                              {service.name}
+                            </option>
+                          ))
+                        ) : (
+                          <option value="" disabled>Aucune prestation disponible</option>
+                        );
+                      }
+                      
+                      const selectedMainCategory = categories.find((cat) => cat.name === step2SelectedCategory && !cat.parentId);
+                      if (!selectedMainCategory) {
+                        return <option value="" disabled>Aucune prestation disponible</option>;
+                      }
+                      
+                      const getServiceMainCategory = (service: typeof services[0]): typeof categories[0] | null => {
+                        if (!service.category) return null;
+                        const serviceCategoryLower = service.category.toLowerCase().trim();
+                        const directMatch = categories.find(
+                          (cat) => !cat.parentId && cat.name.toLowerCase().trim() === serviceCategoryLower
+                        );
+                        if (directMatch) return directMatch;
+                        const subCategoryMatch = categories.find(
+                          (cat) => cat.parentId && cat.name.toLowerCase().trim() === serviceCategoryLower
+                        );
+                        if (subCategoryMatch && subCategoryMatch.parentId) {
+                          const mainCategory = categories.find((cat) => cat.id === subCategoryMatch.parentId);
+                          return mainCategory || null;
+                        }
+                        return null;
+                      };
+                      
+                      const filteredServices = services.filter((s) => {
+                        if (!s.active) return false;
+                        const serviceMainCategory = getServiceMainCategory(s);
+                        if (!serviceMainCategory) return false;
+                        return serviceMainCategory.id === selectedMainCategory.id;
+                      });
+                      
+                      return filteredServices.length > 0 ? (
+                        filteredServices.map((service) => (
+                          <option key={service.id} value={service.id}>
+                            {service.name}
+                          </option>
+                        ))
+                      ) : (
+                        <option value="" disabled>Aucune prestation disponible dans cette catégorie</option>
+                      );
+                    })()
+                  ) : (
+                    <option value="" disabled>Aucune prestation disponible</option>
+                  )}
+                </select>
+              </div>
+
+              {step2SelectedService && (
+                <div>
+                  <label style={{ 
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    marginBottom: '4px', 
+                    fontSize: '9px', 
+                    fontWeight: '600', 
+                    color: 'var(--muted)', 
+                    textTransform: 'uppercase', 
+                    letterSpacing: '0.5px' 
+                  }}>
+                    Détail du support
+                  </label>
+                  <input
+                    type="text"
+                    value={step2SupportDetail}
+                    onChange={(e) => setStep2SupportDetail(e.target.value)}
+                    placeholder="Ex: Modèle, dimensions, couleur, état..."
+                    style={{
+                      width: '100%',
+                      padding: '8px 10px',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--border)',
+                      background: 'var(--surface)',
+                      color: 'var(--text)',
+                      fontSize: '13px',
+                    }}
+                  />
+                </div>
+              )}
+
+              {step2SelectedService && (
+                <button
+                  type="button"
+                  onClick={handleAddServiceToStep2}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    background: 'var(--accent)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: 'var(--radius-md)',
+                    fontSize: '13px',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  <Plus size={14} />
+                  Ajouter cette prestation
+                </button>
+              )}
+            </>
+          )}
+
+          {/* Étape 3 : Planification */}
+          {currentStep === 3 && (
+            <>
+              <div>
+                <label style={{ 
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  marginBottom: '4px', 
+                  fontSize: '9px', 
+                  fontWeight: '600', 
+                  color: 'var(--muted)', 
+                  textTransform: 'uppercase', 
+                  letterSpacing: '0.5px' 
+                }}>
+                  Date d'intervention
+                </label>
+                <input
+                  type="date"
+                  value={creationDraft.scheduledAt || ''}
+                  onChange={(e) => setCreationDraft((draft) => draft ? ({ ...draft, scheduledAt: e.target.value }) : null)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 10px',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--border)',
+                    background: 'var(--surface)',
+                    color: 'var(--text)',
+                    fontSize: '13px',
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ 
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  marginBottom: '4px', 
+                  fontSize: '9px', 
+                  fontWeight: '600', 
+                  color: 'var(--muted)', 
+                  textTransform: 'uppercase', 
+                  letterSpacing: '0.5px' 
+                }}>
+                  Heure de début
+                </label>
+                <input
+                  type="time"
+                  value={creationDraft.startTime || ''}
+                  onChange={(e) => setCreationDraft((draft) => draft ? ({ ...draft, startTime: e.target.value }) : null)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 10px',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--border)',
+                    background: 'var(--surface)',
+                    color: 'var(--text)',
+                    fontSize: '13px',
+                  }}
+                />
+              </div>
+
+              {(creationDraft?.assignedUserIds || []).length > 0 && (
+                <div>
+                  <label style={{ 
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    marginBottom: '4px', 
+                    fontSize: '9px', 
+                    fontWeight: '600', 
+                    color: 'var(--muted)', 
+                    textTransform: 'uppercase', 
+                    letterSpacing: '0.5px' 
+                  }}>
+                    <Users size={10} />
+                    Intervenants assignés
+                  </label>
+                  <div style={{
+                    padding: '8px',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--border)',
+                    background: 'var(--bg-secondary)',
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: '4px',
+                  }}>
+                    {(creationDraft?.assignedUserIds || []).map((userId) => {
+                      const user = authUsers.find(u => u.id === userId);
+                      if (!user) return null;
+                      return (
+                        <span
+                          key={userId}
+                          style={{
+                            padding: '3px 6px',
+                            borderRadius: 'var(--radius-sm)',
+                            fontSize: '11px',
+                            fontWeight: '500',
+                            background: 'var(--accent)',
+                            color: 'white',
+                          }}
+                        >
+                          {user.profile.firstName} {user.profile.lastName}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>
-
-        {/* SECTION 3: PRIX */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
-          <h2 style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text)', marginBottom: 'var(--space-xs)' }}>
-            Tarification
-          </h2>
-
-          {/* Prix de base */}
-          <div>
-            <label style={{
-              display: 'block',
-              marginBottom: '6px',
-              fontSize: '11px',
-              fontWeight: '600',
-              color: 'var(--muted)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px',
-            }}>
-              Prix de base
-            </label>
-            <input
-              type="text"
-              value={formatCurrency(basePrice)}
-              readOnly
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--border)',
-                background: 'var(--bg-secondary)',
-                color: 'var(--text)',
-                fontSize: '15px',
-                fontWeight: '500',
-                cursor: 'not-allowed',
-              }}
-            />
-            <p style={{ fontSize: '10px', color: 'var(--muted)', marginTop: '4px' }}>
-              Grille standard (non modifiable)
-            </p>
-          </div>
-
-          {/* Ajustement */}
-          <div>
-            <label style={{
-              display: 'block',
-              marginBottom: '6px',
-              fontSize: '11px',
-              fontWeight: '600',
-              color: 'var(--muted)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px',
-            }}>
-              Ajustement (€)
-            </label>
-            <input
-              type="number"
-              step="0.01"
-              value={draft.additionalCharge || 0}
-              onChange={(e) => {
-                const value = parseFloat(e.target.value) || 0;
-                setDraft(prev => ({ ...prev, additionalCharge: value }));
-              }}
-              placeholder="0.00"
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--border)',
-                background: 'var(--surface)',
-                color: 'var(--text)',
-                fontSize: '15px',
-              }}
-            />
-            <p style={{ fontSize: '10px', color: 'var(--muted)', marginTop: '4px' }}>
-              + majoration / - remise
-            </p>
-          </div>
-
-          {/* Prix final */}
-          <div>
-            <label style={{
-              display: 'block',
-              marginBottom: '6px',
-              fontSize: '11px',
-              fontWeight: '600',
-              color: 'var(--muted)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px',
-            }}>
-              Prix final
-            </label>
-            <input
-              type="text"
-              value={formatCurrency(finalPrice)}
-              readOnly
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--border)',
-                background: 'var(--bg-secondary)',
-                color: 'var(--text)',
-                fontSize: '15px',
-                fontWeight: '600',
-                cursor: 'not-allowed',
-              }}
-            />
-            {vatEnabledForQuote && (
-              <p style={{ fontSize: '10px', color: 'var(--muted)', marginTop: '4px' }}>
-                TTC : {formatCurrency(finalPriceWithVat)}
-              </p>
-            )}
-            <p style={{ fontSize: '10px', color: 'var(--muted)', marginTop: '4px' }}>
-              Montant facturé au client
-            </p>
-          </div>
-        </div>
-
-        {/* SECTION 4: QUAND - Planification */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
-          <h2 style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text)', marginBottom: 'var(--space-xs)' }}>
-            Planification
-          </h2>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-sm)' }}>
-            {/* Date */}
-            <div>
-              <label style={{
-                display: 'block',
-                marginBottom: '6px',
-                fontSize: '11px',
-                fontWeight: '600',
-                color: 'var(--muted)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.5px',
-              }}>
-                Date <span style={{ color: '#dc2626' }}>*</span>
-              </label>
-              <input
-                type="date"
-                value={draft.scheduledAt}
-                onChange={(e) => setDraft(prev => ({ ...prev, scheduledAt: e.target.value }))}
-                required
-                style={{
-                  width: '100%',
-                  padding: '10px 12px',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--border)',
-                  background: 'var(--surface)',
-                  color: 'var(--text)',
-                  fontSize: '15px',
-                }}
-              />
-            </div>
-
-            {/* Heure début */}
-            <div>
-              <label style={{
-                display: 'block',
-                marginBottom: '6px',
-                fontSize: '11px',
-                fontWeight: '600',
-                color: 'var(--muted)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.5px',
-              }}>
-                Heure début <span style={{ color: '#dc2626' }}>*</span>
-              </label>
-              <input
-                type="time"
-                value={draft.startTime || ''}
-                onChange={(e) => setDraft(prev => ({ ...prev, startTime: e.target.value }))}
-                required
-                style={{
-                  width: '100%',
-                  padding: '10px 12px',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--border)',
-                  background: 'var(--surface)',
-                  color: 'var(--text)',
-                  fontSize: '15px',
-                }}
-              />
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-sm)' }}>
-            {/* Heure fin */}
-            <div>
-              <label style={{
-                display: 'block',
-                marginBottom: '6px',
-                fontSize: '11px',
-                fontWeight: '600',
-                color: 'var(--muted)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.5px',
-              }}>
-                Heure fin
-              </label>
-              <input
-                type="time"
-                value={endTime}
-                readOnly
-                placeholder={estimatedDuration ? 'Calculée' : '—'}
-                style={{
-                  width: '100%',
-                  padding: '10px 12px',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--border)',
-                  background: 'var(--bg-secondary)',
-                  color: 'var(--text)',
-                  fontSize: '15px',
-                  cursor: 'not-allowed',
-                }}
-              />
-              {estimatedDuration && (
-                <p style={{ fontSize: '10px', color: 'var(--muted)', marginTop: '4px' }}>
-                  Durée : {formatDuration(estimatedDuration)}
-                </p>
-              )}
-            </div>
-
-            {/* Adresse */}
-            <div>
-              <label style={{
-                display: 'block',
-                marginBottom: '6px',
-                fontSize: '11px',
-                fontWeight: '600',
-                color: 'var(--muted)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.5px',
-              }}>
-                Adresse
-              </label>
-              <input
-                type="text"
-                value={interventionAddress}
-                readOnly
-                placeholder={selectedClient ? 'Adresse client' : '—'}
-                style={{
-                  width: '100%',
-                  padding: '10px 12px',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--border)',
-                  background: 'var(--bg-secondary)',
-                  color: 'var(--text)',
-                  fontSize: '15px',
-                  cursor: 'not-allowed',
-                }}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* SECTION 5: QUI FAIT & STATUT */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
-          <h2 style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text)', marginBottom: 'var(--space-xs)' }}>
-            Attribution & Statut
-          </h2>
-
-          {/* Intervenant */}
-          <div>
-            <label style={{
-              display: 'block',
-              marginBottom: '6px',
-              fontSize: '11px',
-              fontWeight: '600',
-              color: 'var(--muted)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px',
-            }}>
-              Intervenant <span style={{ color: '#dc2626' }}>*</span>
-            </label>
-            <select
-              value={draft.assignedUserId}
-              onChange={(e) => setDraft(prev => ({ ...prev, assignedUserId: e.target.value }))}
-              required
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--border)',
-                background: 'var(--surface)',
-                color: 'var(--text)',
-                fontSize: '15px',
-              }}
-            >
-              <option value="">Sélectionner…</option>
-              {authUsers.map((user) => (
-                <option key={user.id} value={user.id}>
-                  {user.profile.firstName} {user.profile.lastName}
-                </option>
-              ))}
-            </select>
-            <p style={{ fontSize: '10px', color: 'var(--muted)', marginTop: '4px' }}>
-              Responsable opérationnel
-            </p>
-          </div>
-
-          {/* Statut */}
-          <div>
-            <label style={{
-              display: 'block',
-              marginBottom: '6px',
-              fontSize: '11px',
-              fontWeight: '600',
-              color: 'var(--muted)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px',
-            }}>
-              Statut <span style={{ color: '#dc2626' }}>*</span>
-            </label>
-            <select
-              value={draft.status}
-              onChange={(e) => setDraft(prev => ({ ...prev, status: e.target.value as EngagementStatus }))}
-              disabled
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--border)',
-                background: 'var(--bg-secondary)',
-                color: 'var(--text)',
-                fontSize: '15px',
-                cursor: 'not-allowed',
-              }}
-            >
-              <option value="brouillon">Brouillon</option>
-            </select>
-            <p style={{ fontSize: '10px', color: 'var(--muted)', marginTop: '4px' }}>
-              Devis en brouillon
-            </p>
-          </div>
-        </div>
-
-        {/* SECTION 6: Notes internes */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)', paddingTop: 'var(--space-md)', borderTop: '1px solid var(--border)' }}>
-          <h2 style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text)', marginBottom: 'var(--space-xs)' }}>
-            Notes internes
-          </h2>
-          <textarea
-            value={internalNotes}
-            onChange={(e) => setInternalNotes(e.target.value)}
-            placeholder="Notes internes concernant ce service..."
-            rows={3}
-            style={{
-              width: '100%',
-              padding: '10px 12px',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--border)',
-              background: 'var(--surface)',
-              color: 'var(--text)',
-              fontSize: '15px',
-              resize: 'none',
-              fontFamily: 'inherit',
-            }}
-          />
-          <p style={{ fontSize: '10px', color: 'var(--muted)' }}>
-            Visibles uniquement en interne
-          </p>
-        </div>
       </div>
-
-      {/* Boutons de navigation */}
-      <div style={{
-        position: 'fixed',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        padding: 'var(--space-md)',
-        paddingBottom: 'calc(var(--space-md) + env(safe-area-inset-bottom, 0px))',
-        background: 'var(--bg)',
-        borderTop: '1px solid var(--border)',
-        display: 'flex',
-        gap: 'var(--space-sm)',
-      }}>
-        <button
-          type="button"
-          onClick={() => navigate('/mobile/devis')}
-          disabled={isCreating}
-          style={{
-            flex: 1,
-            padding: 'var(--space-sm) var(--space-md)',
-            background: 'var(--surface)',
-            border: '1.5px solid var(--border)',
-            color: 'var(--text)',
-            fontWeight: '600',
-            fontSize: '14px',
-            borderRadius: 'var(--radius-md)',
-            cursor: isCreating ? 'not-allowed' : 'pointer',
-          }}
-        >
-          Annuler
-        </button>
-        <button
-          type="button"
-          onClick={handleCreate}
-          disabled={isCreating}
-          style={{
-            flex: 1,
-            padding: 'var(--space-sm) var(--space-md)',
-            background: 'var(--accent)',
-            color: 'white',
-            border: 'none',
-            fontWeight: '600',
-            fontSize: '14px',
-            borderRadius: 'var(--radius-md)',
-            cursor: isCreating ? 'not-allowed' : 'pointer',
-            opacity: isCreating ? 0.5 : 1,
-          }}
-        >
-          {isCreating ? 'Création...' : 'Créer le devis'}
-        </button>
-      </div>
-    </div>
+    </>
   );
 };
 

@@ -56,7 +56,7 @@ export const CatalogModalLayout = ({
     md: 'max-w-md',
     lg: 'max-w-lg',
     xl: 'max-w-xl',
-    '2xl': 'max-w-[720px]',
+    '2xl': 'max-w-[1200px]', // Modal plus large pour layout 2 colonnes
   };
 
   return createPortal(

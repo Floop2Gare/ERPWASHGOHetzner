@@ -48,6 +48,9 @@ export const CatalogSection = () => {
   // État pour la catégorie dépliée (accordion)
   const [expandedCategoryId, setExpandedCategoryId] = useState<string | null>(null);
   
+  // État pour les sous-catégories étendues dans le modal (index des sous-catégories)
+  const [expandedSubCategoryIndices, setExpandedSubCategoryIndices] = useState<Set<number>>(new Set());
+  
   // Chargement des données depuis le backend
   useEffect(() => {
     const loadData = async () => {
@@ -98,6 +101,7 @@ export const CatalogSection = () => {
     name: string;
     description: string;
     active: boolean;
+    duration?: number;
     priceHT?: number;
   }>>([]);
 
@@ -197,6 +201,7 @@ export const CatalogSection = () => {
           name: sc.name,
           description: sc.description || '',
           active: sc.active,
+          duration: (sc as any).duration,
           priceHT: (sc as any).priceHT,
         })));
       } else {
@@ -250,7 +255,8 @@ export const CatalogSection = () => {
               description: subCat.description.trim() || undefined,
               active: subCat.active,
               parentId: editingCategory.id,
-              // Utiliser priceHT de l'API Category pour les sous-catégories
+              // Utiliser duration et priceHT de l'API Category pour les sous-catégories
+              ...(subCat.duration !== undefined && { duration: subCat.duration } as any),
               ...(subCat.priceHT !== undefined && { priceHT: subCat.priceHT } as any),
             });
           } else if (subCat.name.trim()) {
@@ -260,7 +266,8 @@ export const CatalogSection = () => {
               description: subCat.description.trim() || undefined,
               active: subCat.active,
               parentId: editingCategory.id,
-              // Utiliser priceHT de l'API Category pour les sous-catégories
+              // Utiliser duration et priceHT de l'API Category pour les sous-catégories
+              ...(subCat.duration !== undefined && { duration: subCat.duration } as any),
               ...(subCat.priceHT !== undefined && { priceHT: subCat.priceHT } as any),
             });
           }
@@ -293,7 +300,8 @@ export const CatalogSection = () => {
               description: subCat.description.trim() || undefined,
               active: subCat.active,
               parentId: newCategory.id,
-              // Utiliser priceHT de l'API Category pour les sous-catégories
+              // Utiliser duration et priceHT de l'API Category pour les sous-catégories
+              ...(subCat.duration !== undefined && { duration: subCat.duration } as any),
               ...(subCat.priceHT !== undefined && { priceHT: subCat.priceHT } as any),
             });
           }
@@ -312,6 +320,7 @@ export const CatalogSection = () => {
       priceHT: undefined,
     });
     setSubCategories([]);
+    setExpandedSubCategoryIndices(new Set());
   };
 
   const handleDeleteCategory = (categoryId: string) => {
@@ -612,7 +621,7 @@ export const CatalogSection = () => {
                     </tr>
                       {isExpanded && (
                         <tr key={`${category.id}-sub`}>
-                          <td colSpan={6} className="px-0 py-0 bg-slate-50/50 dark:bg-slate-900/20">
+                          <td colSpan={6} className="px-0 py-0 bg-white">
                             <div className="px-6 py-4">
                               {subCats.length > 0 ? (
                                 <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 overflow-hidden">
@@ -949,6 +958,7 @@ export const CatalogSection = () => {
               ? (editingCategory ? 'Modifiez les informations de la sous-catégorie' : 'Créez une nouvelle sous-catégorie')
               : (editingCategory ? 'Modifiez les informations de la catégorie' : 'Créez une nouvelle catégorie de prestations')
           }
+          maxWidth={!categoryForm.parentId ? '2xl' : undefined}
           footer={
             <>
                   <button
@@ -969,32 +979,295 @@ export const CatalogSection = () => {
           }
         >
               <>
-                <div>
-                  <CRMFormLabel htmlFor="category-name" required>
-                    Nom de la catégorie
-                  </CRMFormLabel>
-                  <CRMFormInput
-                    id="category-name"
-                    value={categoryForm.name}
-                    onChange={(e) => setCategoryForm({ ...categoryForm, name: e.target.value })}
-                    placeholder="Ex: Voiture, Canapé..."
-                    className="mt-1"
-                  />
-              </div>
+                {categoryForm.parentId ? (
+                  // Mode sous-catégorie : layout normal (une colonne)
+                  <>
+                    <div>
+                      <CRMFormLabel htmlFor="category-name" required>
+                        Nom de la catégorie
+                      </CRMFormLabel>
+                      <CRMFormInput
+                        id="category-name"
+                        value={categoryForm.name}
+                        onChange={(e) => setCategoryForm({ ...categoryForm, name: e.target.value })}
+                        placeholder="Ex: Voiture, Canapé..."
+                        className="mt-1"
+                      />
+                    </div>
 
-                <div>
-                  <CRMFormLabel htmlFor="category-description">
-                    Description
-                  </CRMFormLabel>
-                  <CRMFormTextarea
-                    id="category-description"
-                    value={categoryForm.description}
-                    onChange={(e) => setCategoryForm({ ...categoryForm, description: e.target.value })}
-                    placeholder="Description de la catégorie..."
-                    rows={4}
-                    className="mt-1"
-                  />
-                </div>
+                    <div>
+                      <CRMFormLabel htmlFor="category-description">
+                        Description
+                      </CRMFormLabel>
+                      <CRMFormTextarea
+                        id="category-description"
+                        value={categoryForm.description}
+                        onChange={(e) => setCategoryForm({ ...categoryForm, description: e.target.value })}
+                        placeholder="Description de la catégorie..."
+                        rows={4}
+                        className="mt-1"
+                      />
+                    </div>
+                  </>
+                ) : (
+                  // Mode grande catégorie : layout 2 colonnes
+                  <div className="grid grid-cols-2 gap-6 h-full">
+                    {/* Colonne gauche : Formulaire catégorie */}
+                    <div className="space-y-4 flex flex-col">
+                      <div>
+                        <CRMFormLabel htmlFor="category-name" required>
+                          Nom de la catégorie
+                        </CRMFormLabel>
+                        <CRMFormInput
+                          id="category-name"
+                          value={categoryForm.name}
+                          onChange={(e) => setCategoryForm({ ...categoryForm, name: e.target.value })}
+                          placeholder="Ex: Voiture, Canapé..."
+                          className="mt-1"
+                        />
+                      </div>
+
+                      <div>
+                        <CRMFormLabel htmlFor="category-description">
+                          Description
+                        </CRMFormLabel>
+                        <CRMFormTextarea
+                          id="category-description"
+                          value={categoryForm.description}
+                          onChange={(e) => setCategoryForm({ ...categoryForm, description: e.target.value })}
+                          placeholder="Description de la catégorie..."
+                          rows={6}
+                          className="mt-1"
+                        />
+                      </div>
+
+                      {/* Toggle Actif pour la catégorie */}
+                      <div className="flex items-center justify-between py-2 pt-4 border-t border-slate-200">
+                        <div>
+                          <CRMFormLabel htmlFor="category-active" className="mb-0">
+                            Catégorie active
+                          </CRMFormLabel>
+                        </div>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={categoryForm.active}
+                          onClick={() => setCategoryForm({ ...categoryForm, active: !categoryForm.active })}
+                          className={clsx(
+                            'relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2',
+                            categoryForm.active ? 'bg-blue-600' : 'bg-slate-300'
+                          )}
+                        >
+                          <span
+                            className={clsx(
+                              'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
+                              categoryForm.active ? 'translate-x-6' : 'translate-x-1'
+                            )}
+                          />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Colonne droite : Gestion des sous-catégories */}
+                    <div className="flex flex-col h-full">
+                      <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-200">
+                        <CRMFormLabel className="mb-0">Sous-catégories</CRMFormLabel>
+                        <button
+                          type="button"
+                          onClick={() => setSubCategories([...subCategories, {
+                            name: '',
+                            description: '',
+                            active: true,
+                            duration: undefined,
+                            priceHT: undefined,
+                          }])}
+                          className="flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-800"
+                        >
+                          <IconPlus className="h-3.5 w-3.5" />
+                          Ajouter
+                        </button>
+                      </div>
+                      <div className="flex-1 overflow-y-auto pr-2 min-h-0">
+                        <div className="space-y-2">
+                          {subCategories.map((subCat, index) => {
+                            const isExpanded = expandedSubCategoryIndices.has(index);
+                            return (
+                              <div key={index} className="border border-slate-200 rounded-lg bg-white overflow-hidden">
+                                {/* En-tête : toujours visible avec nom et boutons */}
+                                <div 
+                                  className="flex items-center justify-between p-2.5 cursor-pointer hover:bg-slate-50 transition-colors"
+                                  onClick={() => {
+                                    const newSet = new Set(expandedSubCategoryIndices);
+                                    if (isExpanded) {
+                                      newSet.delete(index);
+                                    } else {
+                                      newSet.add(index);
+                                    }
+                                    setExpandedSubCategoryIndices(newSet);
+                                  }}
+                                >
+                                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const newSet = new Set(expandedSubCategoryIndices);
+                                        if (isExpanded) {
+                                          newSet.delete(index);
+                                        } else {
+                                          newSet.add(index);
+                                        }
+                                        setExpandedSubCategoryIndices(newSet);
+                                      }}
+                                      className="text-slate-400 hover:text-slate-600 transition flex-shrink-0"
+                                      title={isExpanded ? 'Réduire' : 'Étendre'}
+                                    >
+                                      {isExpanded ? (
+                                        <ChevronDown className="h-4 w-4" />
+                                      ) : (
+                                        <ChevronRight className="h-4 w-4" />
+                                      )}
+                                    </button>
+                                    <span className="text-xs font-medium text-slate-600 truncate">
+                                      {subCat.name || `Sous-catégorie ${index + 1}`}
+                                    </span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSubCategories(subCategories.filter((_, i) => i !== index));
+                                      // Retirer l'index de l'état expanded si nécessaire
+                                      const newSet = new Set(expandedSubCategoryIndices);
+                                      newSet.delete(index);
+                                      // Ajuster les index après suppression
+                                      const adjustedSet = new Set<number>();
+                                      newSet.forEach(idx => {
+                                        if (idx > index) {
+                                          adjustedSet.add(idx - 1);
+                                        } else if (idx < index) {
+                                          adjustedSet.add(idx);
+                                        }
+                                      });
+                                      setExpandedSubCategoryIndices(adjustedSet);
+                                    }}
+                                    className="text-rose-600 hover:text-rose-700 p-0.5 ml-2 flex-shrink-0"
+                                    title="Supprimer"
+                                  >
+                                    <IconTrash className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
+                                
+                                {/* Contenu : affiché seulement si étendu */}
+                                {isExpanded && (
+                                  <div className="p-3 pt-0 space-y-2 border-t border-slate-100">
+                                    <CRMFormInput
+                                      value={subCat.name}
+                                      onChange={(e) => {
+                                        const updated = [...subCategories];
+                                        updated[index] = { ...updated[index], name: e.target.value };
+                                        setSubCategories(updated);
+                                      }}
+                                      placeholder="Nom de la sous-catégorie"
+                                      className="text-sm"
+                                      onClick={(e) => e.stopPropagation()}
+                                    />
+                                    <CRMFormTextarea
+                                      value={subCat.description}
+                                      onChange={(e) => {
+                                        const updated = [...subCategories];
+                                        updated[index] = { ...updated[index], description: e.target.value };
+                                        setSubCategories(updated);
+                                      }}
+                                      placeholder="Description..."
+                                      rows={2}
+                                      className="text-sm"
+                                      onClick={(e) => e.stopPropagation()}
+                                    />
+                                    <div className="grid grid-cols-2 gap-3">
+                                      <div>
+                                        <CRMFormLabel htmlFor={`sub-duration-${index}`} className="text-xs">
+                                          Durée (min)
+                                        </CRMFormLabel>
+                                        <CRMFormInput
+                                          id={`sub-duration-${index}`}
+                                          type="number"
+                                          value={subCat.duration || ''}
+                                          onChange={(e) => {
+                                            const updated = [...subCategories];
+                                            updated[index] = { ...updated[index], duration: parseInt(e.target.value) || undefined };
+                                            setSubCategories(updated);
+                                          }}
+                                          placeholder="0"
+                                          className="text-sm"
+                                          onClick={(e) => e.stopPropagation()}
+                                        />
+                                      </div>
+                                      <div>
+                                        <CRMFormLabel htmlFor={`sub-price-${index}`} className="text-xs">
+                                          Tarif HT (€)
+                                        </CRMFormLabel>
+                                        <CRMFormInput
+                                          id={`sub-price-${index}`}
+                                          type="number"
+                                          step="0.01"
+                                          value={subCat.priceHT || ''}
+                                          onChange={(e) => {
+                                            const updated = [...subCategories];
+                                            updated[index] = { ...updated[index], priceHT: parseFloat(e.target.value) || undefined };
+                                            setSubCategories(updated);
+                                          }}
+                                          placeholder="0.00"
+                                          className="text-sm"
+                                          onClick={(e) => e.stopPropagation()}
+                                        />
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center justify-between pt-1">
+                                      <CRMFormLabel className="mb-0 text-xs">Active</CRMFormLabel>
+                                      <button
+                                        type="button"
+                                        role="switch"
+                                        aria-checked={subCat.active}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const updated = [...subCategories];
+                                          updated[index] = { ...updated[index], active: !subCat.active };
+                                          setSubCategories(updated);
+                                        }}
+                                        className={clsx(
+                                          'relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1',
+                                          subCat.active ? 'bg-blue-600' : 'bg-slate-300'
+                                        )}
+                                      >
+                                        <span
+                                          className={clsx(
+                                            'inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform',
+                                            subCat.active ? 'translate-x-5' : 'translate-x-0.5'
+                                          )}
+                                        />
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                          {subCategories.length === 0 && (
+                            <div className="p-4 border border-slate-200 rounded-lg bg-slate-50 text-center">
+                              <p className="text-xs text-slate-500">
+                                Aucune sous-catégorie
+                              </p>
+                              <p className="text-xs text-slate-400 mt-1">
+                                Cliquez sur "Ajouter" pour créer une sous-catégorie
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {categoryForm.parentId && (
                   <div className="grid grid-cols-2 gap-4">
@@ -1028,129 +1301,33 @@ export const CatalogSection = () => {
               </div>
                 )}
 
-                {/* Toggle Actif */}
-                <div className="flex items-center justify-between py-2">
-                  <div>
-                    <CRMFormLabel htmlFor="category-active" className="mb-0">
-                      {categoryForm.parentId ? 'Sous-catégorie active' : 'Catégorie active'}
-                    </CRMFormLabel>
-                </div>
-                <button
-                  type="button"
-                    role="switch"
-                    aria-checked={categoryForm.active}
-                    onClick={() => setCategoryForm({ ...categoryForm, active: !categoryForm.active })}
-              className={clsx(
-                      'relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2',
-                      categoryForm.active ? 'bg-blue-600' : 'bg-slate-300 dark:bg-slate-600'
-                    )}
-                  >
-                    <span
-              className={clsx(
-                        'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
-                        categoryForm.active ? 'translate-x-6' : 'translate-x-1'
-                      )}
-                    />
-                </button>
-              </div>
-
-                {!categoryForm.parentId && (
-                  <div className="space-y-3 pt-4 border-t border-slate-200 dark:border-slate-700">
-                    <div className="flex items-center justify-between">
-                      <CRMFormLabel>Sous-catégories</CRMFormLabel>
-                      <button
-                        type="button"
-                        onClick={() => setSubCategories([...subCategories, {
-                          name: '',
-                          description: '',
-                          active: true,
-                        }])}
-                        className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-800 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
-                      >
-                        <IconPlus />
-                        Ajouter
-                      </button>
+                {/* Toggle Actif - seulement pour les sous-catégories */}
+                {categoryForm.parentId && (
+                  <div className="flex items-center justify-between py-2">
+                    <div>
+                      <CRMFormLabel htmlFor="category-active" className="mb-0">
+                        Sous-catégorie active
+                      </CRMFormLabel>
                     </div>
-                    {subCategories.map((subCat, index) => (
-                      <div key={index} className="p-4 border border-slate-200 dark:border-slate-700 rounded-xl space-y-3 bg-slate-50/50 dark:bg-slate-800/30">
-                    <div className="flex items-center justify-between">
-                          <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
-                            Sous-catégorie {index + 1}
-                  </span>
-                                <button
-                            onClick={() => setSubCategories(subCategories.filter((_, i) => i !== index))}
-                            className="text-rose-600 hover:text-rose-700"
-                          >
-                            <IconTrash />
-                                </button>
-                                  </div>
-                        <CRMFormInput
-                          value={subCat.name}
-                          onChange={(e) => {
-                            const updated = [...subCategories];
-                            updated[index] = { ...updated[index], name: e.target.value };
-                            setSubCategories(updated);
-                          }}
-                          placeholder="Nom de la sous-catégorie"
-                          className="mt-1"
-                        />
-                        <CRMFormTextarea
-                          value={subCat.description}
-                          onChange={(e) => {
-                            const updated = [...subCategories];
-                            updated[index] = { ...updated[index], description: e.target.value };
-                            setSubCategories(updated);
-                          }}
-                          placeholder="Description..."
-                          rows={2}
-                          className="mt-1"
-                        />
-                        <div>
-                          <CRMFormLabel htmlFor={`sub-price-${index}`}>
-                            Tarif HT (€)
-                          </CRMFormLabel>
-                          <CRMFormInput
-                            id={`sub-price-${index}`}
-                            type="number"
-                            step="0.01"
-                            value={subCat.priceHT || ''}
-                            onChange={(e) => {
-                              const updated = [...subCategories];
-                              updated[index] = { ...updated[index], priceHT: parseFloat(e.target.value) || undefined };
-                              setSubCategories(updated);
-                            }}
-                            placeholder="0.00"
-                            className="mt-1"
-                          />
-                                </div>
-                                  <div className="flex items-center justify-between py-1">
-                                    <CRMFormLabel className="mb-0 text-xs">Active</CRMFormLabel>
-                                <button
-                                  type="button"
-                                      role="switch"
-                                      aria-checked={subCat.active}
-                                  onClick={() => {
-                                        const updated = [...subCategories];
-                                        updated[index] = { ...updated[index], active: !subCat.active };
-                                        setSubCategories(updated);
-                                  }}
-                                  className={clsx(
-                                        'relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1',
-                                        subCat.active ? 'bg-blue-600' : 'bg-slate-300 dark:bg-slate-600'
-                                      )}
-                                    >
-                                      <span
-                                        className={clsx(
-                                          'inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform',
-                                          subCat.active ? 'translate-x-5' : 'translate-x-0.5'
-                                        )}
-                                      />
-                                </button>
-                              </div>
-              </div>
-                          ))}
-                      </div>
-                    )}
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={categoryForm.active}
+                      onClick={() => setCategoryForm({ ...categoryForm, active: !categoryForm.active })}
+                      className={clsx(
+                        'relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2',
+                        categoryForm.active ? 'bg-blue-600' : 'bg-slate-300'
+                      )}
+                    >
+                      <span
+                        className={clsx(
+                          'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
+                          categoryForm.active ? 'translate-x-6' : 'translate-x-1'
+                        )}
+                      />
+                    </button>
+                  </div>
+                )}
                       </>
         </CatalogModalLayout>
       )}

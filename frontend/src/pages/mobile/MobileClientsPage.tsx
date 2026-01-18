@@ -252,8 +252,7 @@ const MobileClientsPage: React.FC = () => {
   };
 
   const openCreateClientModal = () => {
-    resetCreateClientForm();
-    setShowCreateClientModal(true);
+    navigate('/mobile/clients/create');
   };
 
   const openEditClientModal = (client: Client) => {

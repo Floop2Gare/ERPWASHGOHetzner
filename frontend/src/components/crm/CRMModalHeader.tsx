@@ -24,7 +24,7 @@ export const CRMModalHeader = ({ eyebrow, title, description, onClose, className
         {eyebrow && (
           <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-blue-600 dark:text-blue-400">{eyebrow}</span>
         )}
-        <h2 className={clsx("text-xl font-bold", (title === 'Nouvel utilisateur' || title === 'Nouveau prospect' || title.toLowerCase().includes('nouveau prospect') || title === 'Nouvel achat' || title === 'Modifier un achat' || title.toLowerCase().includes('achat')) ? 'text-slate-900 dark:text-slate-100' : 'text-blue-700 dark:text-blue-300')}>{title}</h2>
+        <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">{title}</h2>
         {description && (
           <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">{description}</p>
         )}

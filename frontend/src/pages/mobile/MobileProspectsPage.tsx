@@ -298,8 +298,7 @@ const MobileProspectsPage: React.FC = () => {
   };
 
   const openCreateLeadModal = () => {
-    resetCreateLeadForm();
-    setShowCreateLeadModal(true);
+    navigate('/mobile/prospects/create');
   };
 
   const openEditLeadModal = (lead: Lead) => {

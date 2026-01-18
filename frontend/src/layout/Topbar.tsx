@@ -845,6 +845,21 @@ export const Topbar = ({
                     e.stopPropagation();
                     setIsUserMenuOpen(false);
                     setTimeout(() => {
+                      navigate('/workspace/parametres/profile?openPassword=true');
+                    }, 150);
+                  }}
+                  className="flex w-full items-center rounded-lg px-3 py-2.5 text-left text-sm transition-colors hover:bg-surface/80 hover:text-primary"
+                >
+                  Changer mon mot de passe
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsUserMenuOpen(false);
+                    setTimeout(() => {
                       logout();
                       navigate('/connexion');
                     }, 150);
@@ -911,6 +926,21 @@ export const Topbar = ({
                   className="flex w-full items-center rounded-lg px-3 py-2.5 text-left text-sm transition-colors hover:bg-surface/80 hover:text-primary"
                 >
                   Mon profil
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsUserMenuOpen(false);
+                    setTimeout(() => {
+                      navigate('/workspace/parametres/profile?openPassword=true');
+                    }, 150);
+                  }}
+                  className="flex w-full items-center rounded-lg px-3 py-2.5 text-left text-sm transition-colors hover:bg-surface/80 hover:text-primary"
+                >
+                  Changer mon mot de passe
                 </button>
                 <button
                   type="button"
