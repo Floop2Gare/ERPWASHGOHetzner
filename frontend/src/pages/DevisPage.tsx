@@ -339,6 +339,7 @@ const DevisPage = () => {
     draft.clientId = '';
     draft.serviceId = '';
     draft.contactIds = [];
+    draft.assignedUserId = '';
     draft.assignedUserIds = [];
     setCreationDraft(draft);
     setSelectedCategory('');
@@ -1247,6 +1248,10 @@ const DevisPage = () => {
     const draft = buildDraftFromEngagement(engagement);
     // Ajouter assignedUserIds au draft
     draft.assignedUserIds = engagement.assignedUserIds || [];
+    // Initialiser assignedUserId depuis assignedUserIds (premier élément)
+    draft.assignedUserId = engagement.assignedUserIds && engagement.assignedUserIds.length > 0
+      ? engagement.assignedUserIds[0]
+      : '';
     // Copier le nom du devis s'il existe
     if ((engagement as any).quoteName) {
       (draft as any).quoteName = (engagement as any).quoteName;
@@ -1735,7 +1740,7 @@ const DevisPage = () => {
     setIsCreatingQuote(true);
     setFeedback(null);
 
-    // Validation : client et services
+    // Validation : client, services et collaborateur
     if (!creationDraft.clientId) {
       setFeedback('Sélectionnez un client/prospect ou créez-en un nouveau.');
       setIsCreatingQuote(false);
@@ -1744,6 +1749,14 @@ const DevisPage = () => {
     
     if (selectedServices.length === 0) {
       setFeedback('Sélectionnez au moins une prestation.');
+      setIsCreatingQuote(false);
+      return;
+    }
+    
+    // Validation : collaborateur obligatoire
+    const assignedUserId = creationDraft.assignedUserId || (creationDraft.assignedUserIds && creationDraft.assignedUserIds.length > 0 ? creationDraft.assignedUserIds[0] : '');
+    if (!assignedUserId) {
+      setFeedback('Sélectionnez un collaborateur.');
       setIsCreatingQuote(false);
       return;
     }
@@ -1836,6 +1849,16 @@ const DevisPage = () => {
       ? fromLocalInputValue(creationDraft.scheduledAt)
       : new Date().toISOString(); // Date par défaut pour le backend (mais pas planifié si planningUser/startTime sont null)
     
+    // Validation : un devis planifié doit avoir un collaborateur
+    if (hasPlanning && !assignedUserId) {
+      setFeedback('Un devis planifié doit avoir un collaborateur assigné.');
+      setIsCreatingQuote(false);
+      return;
+    }
+    
+    // Convertir assignedUserId en assignedUserIds pour le backend
+    const assignedUserIdsArray = assignedUserId ? [assignedUserId] : [];
+    
     // Inclure le contact sélectionné si un client professionnel est sélectionné
     const contactIds = selectedContactId && client.type === 'company'
       ? [selectedContactId]
@@ -1852,7 +1875,7 @@ const DevisPage = () => {
       supportDetail: firstService.supportDetail,
       additionalCharge: creationDraft.additionalCharge || 0,
       contactIds: contactIds,
-      assignedUserIds: creationDraft.assignedUserIds || [],
+      assignedUserIds: assignedUserIdsArray,
       planningUser: planningUser,
       startTime: startTime,
       invoiceVatEnabled: vatEnabledForQuote,
@@ -3341,7 +3364,7 @@ const DevisPage = () => {
                           <div className="space-y-2 max-w-xs">
                             <div className="flex items-center gap-2 mb-1">
                               <Users className="h-4 w-4 text-slate-500 dark:text-slate-400" />
-                              <CRMFormLabel htmlFor="create-assigned-users" className="text-sm font-semibold text-slate-700 dark:text-slate-300">Collaborateurs rattachés</CRMFormLabel>
+                              <CRMFormLabel htmlFor="create-assigned-user" className="text-sm font-semibold text-slate-700 dark:text-slate-300">Collaborateur *</CRMFormLabel>
                             </div>
                             {(() => {
                               // Filtrer les membres d'équipe par entreprise sélectionnée
@@ -3383,49 +3406,34 @@ const DevisPage = () => {
                                 );
                               }
                               
+                              // Récupérer le premier ID de assignedUserIds comme assignedUserId (pour rétrocompatibilité)
+                              const currentAssignedUserId = creationDraft?.assignedUserIds && creationDraft.assignedUserIds.length > 0
+                                ? creationDraft.assignedUserIds[0]
+                                : (creationDraft?.assignedUserId || '');
+                              
                               return (
-                                <>
-                                  <div className="max-h-40 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-800">
-                                    <div className="space-y-1.5">
-                                      {teamMembers.map((member) => {
-                                        const isSelected = (creationDraft?.assignedUserIds || []).includes(member.id);
-                                        return (
-                                          <label
-                                            key={member.id}
-                                            className={clsx(
-                                              "flex cursor-pointer items-center gap-2 rounded p-2 transition-all",
-                                              isSelected 
-                                                ? "bg-blue-50 border border-blue-200 dark:bg-blue-900/20 dark:border-blue-800" 
-                                                : "hover:bg-slate-50 dark:hover:bg-slate-700/50"
-                                            )}
-                                          >
-                                            <input
-                                              type="checkbox"
-                                              checked={isSelected}
-                                              onChange={(e) => {
-                                                const currentIds = creationDraft?.assignedUserIds || [];
-                                                const newIds = e.target.checked
-                                                  ? [...currentIds, member.id]
-                                                  : currentIds.filter((id) => id !== member.id);
-                                                setCreationDraft((draft) => draft ? ({ ...draft, assignedUserIds: newIds }) : null);
-                                              }}
-                                              className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600 focus:ring-2 focus:ring-blue-500 dark:border-slate-600"
-                                            />
-                                            <span className="text-xs font-medium text-slate-900 dark:text-slate-100">
-                                              {member.firstName} {member.lastName}
-                                              {member.role && <span className="text-slate-500 dark:text-slate-400 ml-1">• {member.role}</span>}
-                                            </span>
-                                          </label>
-                                        );
-                                      })}
-                                    </div>
-                                  </div>
-                                  {(creationDraft?.assignedUserIds || []).length > 0 && (
-                                    <p className="text-xs text-slate-600 dark:text-slate-400">
-                                      {(creationDraft?.assignedUserIds || []).length} collaborateur{(creationDraft?.assignedUserIds || []).length > 1 ? 's' : ''} sélectionné{(creationDraft?.assignedUserIds || []).length > 1 ? 's' : ''}
-                                    </p>
-                                  )}
-                                </>
+                                <CRMFormSelect
+                                  id="create-assigned-user"
+                                  value={currentAssignedUserId}
+                                  onChange={(e) => {
+                                    const selectedId = e.target.value;
+                                    setCreationDraft((draft) => draft ? ({
+                                      ...draft,
+                                      assignedUserId: selectedId,
+                                      assignedUserIds: selectedId ? [selectedId] : [],
+                                    }) : null);
+                                  }}
+                                  required
+                                  className="w-full shadow-sm transition-all focus:shadow-md focus:ring-2 focus:ring-blue-500/20"
+                                >
+                                  <option value="">Sélectionner un collaborateur</option>
+                                  {teamMembers.map((member) => (
+                                    <option key={member.id} value={member.id}>
+                                      {member.firstName} {member.lastName}
+                                      {member.role && ` • ${member.role}`}
+                                    </option>
+                                  ))}
+                                </CRMFormSelect>
                               );
                             })()}
                           </div>

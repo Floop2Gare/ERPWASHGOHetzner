@@ -87,6 +87,7 @@ const MobileCreateDevisPage: React.FC = () => {
     draft.clientId = '';
     draft.serviceId = '';
     draft.contactIds = [];
+    draft.assignedUserId = '';
     draft.assignedUserIds = [];
     setCreationDraft(draft);
     
@@ -311,6 +312,13 @@ const MobileCreateDevisPage: React.FC = () => {
       return;
     }
 
+    // Validation : collaborateur obligatoire
+    const assignedUserId = creationDraft.assignedUserId || (creationDraft.assignedUserIds && creationDraft.assignedUserIds.length > 0 ? creationDraft.assignedUserIds[0] : '');
+    if (!assignedUserId) {
+      setCreateQuoteError('Veuillez sélectionner un collaborateur.');
+      return;
+    }
+
     try {
       const client = clientsById.get(creationDraft.clientId);
       if (!client) {
@@ -387,9 +395,18 @@ const MobileCreateDevisPage: React.FC = () => {
         ? creationDraft.startTime 
         : null;
 
+      // Validation : un devis planifié doit avoir un collaborateur
+      if (hasPlanning && !assignedUserId) {
+        setCreateQuoteError('Un devis planifié doit avoir un collaborateur assigné.');
+        return;
+      }
+
       const scheduledAtValue = hasPlanning && creationDraft.scheduledAt && creationDraft.scheduledAt.trim() !== ''
         ? creationDraft.scheduledAt
         : new Date().toISOString();
+
+      // Convertir assignedUserId en assignedUserIds pour le backend
+      const assignedUserIdsArray = assignedUserId ? [assignedUserId] : [];
 
       const contactIds = client.contacts?.find(c => c.active && c.isBillingDefault) 
         ? [client.contacts.find(c => c.active && c.isBillingDefault)!.id]
@@ -408,7 +425,7 @@ const MobileCreateDevisPage: React.FC = () => {
         supportType: firstService.supportType || 'Voiture',
         supportDetail: firstService.supportDetail || '',
         contactIds: contactIds,
-        assignedUserIds: creationDraft.assignedUserIds || [],
+        assignedUserIds: assignedUserIdsArray,
         planningUser: planningUser,
         startTime: startTime,
         invoiceVatEnabled: vatEnabledForQuote,
@@ -602,7 +619,7 @@ const MobileCreateDevisPage: React.FC = () => {
                 </select>
               </div>
 
-              {/* Collaborateurs */}
+              {/* Collaborateur */}
               <div>
                 <label style={{ 
                   display: 'flex',
@@ -616,7 +633,7 @@ const MobileCreateDevisPage: React.FC = () => {
                   letterSpacing: '0.5px' 
                 }}>
                   <Users size={10} />
-                  Collaborateurs
+                  Collaborateur *
                 </label>
                 {(() => {
                   const selectedCompanyId = creationDraft?.companyId || '';
@@ -662,56 +679,42 @@ const MobileCreateDevisPage: React.FC = () => {
                     );
                   }
                   
+                  // Récupérer le premier ID de assignedUserIds comme assignedUserId (pour rétrocompatibilité)
+                  const currentAssignedUserId = creationDraft?.assignedUserIds && creationDraft.assignedUserIds.length > 0
+                    ? creationDraft.assignedUserIds[0]
+                    : (creationDraft?.assignedUserId || '');
+                  
                   return (
-                    <div style={{
-                      maxHeight: '100px',
-                      overflowY: 'auto',
-                      borderRadius: 'var(--radius-md)',
-                      border: '1px solid var(--border)',
-                      background: 'var(--surface)',
-                      padding: '6px',
-                    }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        {teamMembers.map((member) => {
-                          const isSelected = (creationDraft?.assignedUserIds || []).includes(member.id);
-                          return (
-                            <label
-                              key={member.id}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '6px',
-                                padding: '4px 6px',
-                                borderRadius: 'var(--radius-sm)',
-                                background: isSelected ? 'rgba(var(--accent-rgb), 0.1)' : 'transparent',
-                                border: isSelected ? '1px solid var(--accent)' : '1px solid transparent',
-                                cursor: 'pointer',
-                              }}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                onChange={(e) => {
-                                  const currentIds = creationDraft?.assignedUserIds || [];
-                                  const newIds = e.target.checked
-                                    ? [...currentIds, member.id]
-                                    : currentIds.filter((id) => id !== member.id);
-                                  setCreationDraft((draft) => draft ? ({ ...draft, assignedUserIds: newIds }) : null);
-                                }}
-                                style={{
-                                  width: '14px',
-                                  height: '14px',
-                                  accentColor: 'var(--accent)',
-                                }}
-                              />
-                              <span style={{ fontSize: '11px', fontWeight: '500', color: 'var(--text)' }}>
-                                {member.firstName} {member.lastName}
-                              </span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    </div>
+                    <select
+                      value={currentAssignedUserId}
+                      onChange={(e) => {
+                        const selectedId = e.target.value;
+                        setCreationDraft((draft) => draft ? ({
+                          ...draft,
+                          assignedUserId: selectedId,
+                          assignedUserIds: selectedId ? [selectedId] : [],
+                        }) : null);
+                      }}
+                      required
+                      style={{
+                        width: '100%',
+                        padding: '8px 10px',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--border)',
+                        background: 'var(--surface)',
+                        color: 'var(--text)',
+                        fontSize: '12px',
+                        outline: 'none',
+                      }}
+                    >
+                      <option value="">Sélectionner un collaborateur</option>
+                      {teamMembers.map((member) => (
+                        <option key={member.id} value={member.id}>
+                          {member.firstName} {member.lastName}
+                          {member.role && ` • ${member.role}`}
+                        </option>
+                      ))}
+                    </select>
                   );
                 })()}
               </div>

@@ -69,6 +69,9 @@ const MobilePrestationsPage: React.FC = () => {
   const clientsById = useEntityMaps(clients);
   const servicesById = useEntityMaps(services);
   
+  // Déclarer activeCompanyId avant son utilisation
+  const activeCompanyId = useAppData((state) => state.activeCompanyId);
+  
   // Créer un mapping entre les IDs de projectMembers et leurs profileIds
   const memberIdToProfileId = useMemo(() => {
     const map = new Map<string, string>();
@@ -85,6 +88,13 @@ const MobilePrestationsPage: React.FC = () => {
     return new Set(projectMembers.map(m => m.id));
   }, [projectMembers]);
   
+  // Récupérer le companyId de l'utilisateur connecté
+  const getCurrentUser = useAppData((state) => state.getCurrentUser);
+  const currentUserCompanyId = useMemo(() => {
+    const currentUser = getCurrentUser();
+    return currentUser?.companyId || activeCompanyId;
+  }, [activeCompanyId, getCurrentUser]);
+
   // Filtrer les services réalisés, services planifiés ET les devis planifiés assignés au collaborateur
   // Utiliser useMemo pour éviter de recréer le tableau à chaque render
   const engagements = useMemo(() => {
@@ -111,6 +121,36 @@ const MobilePrestationsPage: React.FC = () => {
       });
     };
 
+    // Fonction helper pour vérifier si un devis planifié est visible pour l'utilisateur connecté
+    const isPlannedQuoteVisible = (e: Engagement): boolean => {
+      // Si le devis n'est pas planifié, il est visible pour toute l'équipe de la même entreprise
+      if (e.status !== 'planifié') {
+        // Vérifier que le devis appartient à la même entreprise
+        return e.companyId === currentUserCompanyId;
+      }
+      
+      // Si le devis est planifié, il doit avoir un collaborateur assigné
+      if (!e.assignedUserIds || e.assignedUserIds.length === 0) {
+        return false;
+      }
+      
+      // Vérifier que le collaborateur assigné appartient à la même entreprise que l'utilisateur connecté
+      const assignedMemberId = e.assignedUserIds[0];
+      const assignedMember = projectMembers.find(m => m.id === assignedMemberId);
+      
+      if (!assignedMember) {
+        // Si le collaborateur n'est pas trouvé, vérifier par profileId
+        const profileId = memberIdToProfileId.get(assignedMemberId);
+        if (profileId === currentUserId) {
+          return true;
+        }
+        return false;
+      }
+      
+      // Le devis est visible uniquement si le collaborateur assigné a le même companyId que l'utilisateur connecté
+      return assignedMember.companyId === currentUserCompanyId;
+    };
+
     return allEngagements.filter((e) => {
       // Services réalisés assignés au collaborateur connecté
       if (e.kind === 'service' && e.status === 'réalisé') {
@@ -123,7 +163,7 @@ const MobilePrestationsPage: React.FC = () => {
         return isAssignedToCurrentUser(e);
       }
       
-      // Devis planifiés ou brouillons assignés au collaborateur connecté
+      // Devis planifiés ou brouillons
       // IMPORTANT: Un devis doit avoir une date planifiée (scheduledAt) pour apparaître dans le calendrier
       // Exclure les devis terminés (acceptés ou refusés) du planning
       if (e.kind === 'devis' && (e.status === 'planifié' || e.status === 'brouillon')) {
@@ -133,12 +173,19 @@ const MobilePrestationsPage: React.FC = () => {
         }
         // Vérifier que le devis a une date planifiée
         if (!e.scheduledAt) return false;
-        return isAssignedToCurrentUser(e);
+        
+        // Si le devis est planifié, utiliser la logique de filtrage par entreprise du collaborateur
+        if (e.status === 'planifié') {
+          return isPlannedQuoteVisible(e);
+        }
+        
+        // Si le devis n'est pas planifié (brouillon), il est visible pour toute l'équipe de la même entreprise
+        return e.companyId === currentUserCompanyId;
       }
       
       return false;
     });
-  }, [allEngagements, currentUserId, memberIdToProfileId, memberIdsSet]);
+  }, [allEngagements, currentUserId, memberIdToProfileId, memberIdsSet, projectMembers, currentUserCompanyId]);
   
   // Debug désactivé pour éviter les re-renders multiples
   // Réactiver uniquement si nécessaire pour le debug
@@ -172,7 +219,6 @@ const MobilePrestationsPage: React.FC = () => {
   const servicesLoadedRef = useRef(false);
   const categoriesLoadedRef = useRef(false);
   const clientsLoadedRef = useRef(false);
-  const activeCompanyId = useAppData((state) => state.activeCompanyId);
 
   // Fonction pour charger les services
   const loadServices = React.useCallback(async () => {
