@@ -25,6 +25,12 @@ COPY . .
 # Build le frontend pour la production
 RUN npm run build
 
+# Injecter la version dans le manifest.json final après le build
+RUN APP_VERSION=$(date +%s) && \
+    if [ -f dist/manifest.json ]; then \
+      sed -i "s/{{APP_VERSION}}/$APP_VERSION/g" dist/manifest.json; \
+    fi
+
 # Stage 2: Production avec nginx
 FROM nginx:alpine
 
