@@ -19,6 +19,7 @@ import {
   CompanyService,
   UserService,
   SubscriptionService,
+  CategoryService,
 } from '../api';
 
 export type ClientContactRole = 'achat' | 'facturation' | 'technique';
@@ -3637,14 +3638,50 @@ export const useAppData = create<AppState>((set, get) => ({
       createdAt: now,
       updatedAt: now,
     };
+    // Mettre à jour le store immédiatement pour l'UI
     set((state) => ({
       categories: [...state.categories, newCategory],
     }));
+    
+    // Synchroniser avec le backend
+    Promise.resolve()
+      .then(() =>
+        CategoryService.create({
+          ...newCategory,
+          id: undefined, // Laisser le backend générer l'ID si nécessaire
+        })
+      )
+      .then(async (result) => {
+        if (result.success && result.data) {
+          // Recharger la liste complète depuis le backend pour garantir la cohérence
+          const refreshed = await CategoryService.getAll();
+          if (refreshed.success && Array.isArray(refreshed.data)) {
+            set({ categories: refreshed.data });
+          }
+        } else if (!result.success) {
+          console.error('[Store] ❌ Erreur synchronisation catégorie:', result.error);
+          // Revenir en arrière en cas d'erreur
+          set((state) => ({
+            categories: state.categories.filter((cat) => cat.id !== newCategory.id),
+          }));
+        }
+      })
+      .catch((error) => {
+        console.error('[Store] ❌ Erreur lors de la création de la catégorie:', error);
+        // Revenir en arrière en cas d'erreur
+        set((state) => ({
+          categories: state.categories.filter((cat) => cat.id !== newCategory.id),
+        }));
+      });
+    
     return newCategory;
   },
   updateCategory: (categoryId, updates) => {
     let updatedCategory: Category | null = null;
+    // Sauvegarder l'état précédent pour rollback en cas d'erreur
+    let previousCategory: Category | null = null;
     set((state) => {
+      previousCategory = state.categories.find((cat) => cat.id === categoryId) || null;
       const nextCategories = state.categories.map((category) => {
         if (category.id !== categoryId) {
           return category;
@@ -3662,24 +3699,99 @@ export const useAppData = create<AppState>((set, get) => ({
         categories: nextCategories,
       };
     });
+
+    // Synchroniser avec le backend
+    if (updatedCategory) {
+      CategoryService.update(categoryId, updatedCategory)
+        .then(async (result) => {
+          if (result.success && result.data) {
+            // Recharger la liste complète depuis le backend pour garantir la cohérence
+            const refreshed = await CategoryService.getAll();
+            if (refreshed.success && Array.isArray(refreshed.data)) {
+              set({ categories: refreshed.data });
+            }
+          } else {
+            console.error('[Store] ❌ Erreur synchronisation catégorie (update):', result.error);
+            // Revenir en arrière en cas d'erreur
+            if (previousCategory) {
+              set((state) => ({
+                categories: state.categories.map((cat) =>
+                  cat.id === categoryId ? previousCategory! : cat
+                ),
+              }));
+            }
+          }
+        })
+        .catch((error) => {
+          console.error('[Store] ❌ Erreur lors de la mise à jour de la catégorie:', error);
+          // Revenir en arrière en cas d'erreur
+          if (previousCategory) {
+            set((state) => ({
+              categories: state.categories.map((cat) =>
+                cat.id === categoryId ? previousCategory! : cat
+              ),
+            }));
+          }
+        });
+    }
+    
     return updatedCategory;
   },
   removeCategory: (categoryId) => {
-    set((state) => ({
-      categories: state.categories.filter((category) => category.id !== categoryId),
-      // Mettre à jour les services pour utiliser une catégorie par défaut si nécessaire
-      services: state.services.map((service) => {
-        const category = state.categories.find((c) => c.id === categoryId);
-        if (category && service.category === category.name) {
-          const defaultCategory = state.categories.find((c) => c.id !== categoryId && c.active);
-          return {
-            ...service,
-            category: defaultCategory?.name ?? 'Autre',
-          };
+    // Sauvegarder la catégorie pour rollback en cas d'erreur
+    let deletedCategory: Category | null = null;
+    let previousServices: Service[] = [];
+    set((state) => {
+      deletedCategory = state.categories.find((cat) => cat.id === categoryId) || null;
+      previousServices = [...state.services];
+      
+      return {
+        categories: state.categories.filter((category) => category.id !== categoryId),
+        // Mettre à jour les services pour utiliser une catégorie par défaut si nécessaire
+        services: state.services.map((service) => {
+          const category = state.categories.find((c) => c.id === categoryId);
+          if (category && service.category === category.name) {
+            const defaultCategory = state.categories.find((c) => c.id !== categoryId && c.active);
+            return {
+              ...service,
+              category: defaultCategory?.name ?? 'Autre',
+            };
+          }
+          return service;
+        }),
+      };
+    });
+
+    // Synchroniser avec le backend
+    CategoryService.delete(categoryId)
+      .then(async (result) => {
+        if (result.success) {
+          // Recharger la liste complète depuis le backend pour garantir la cohérence
+          const refreshed = await CategoryService.getAll();
+          if (refreshed.success && Array.isArray(refreshed.data)) {
+            set({ categories: refreshed.data });
+          }
+        } else {
+          console.error('[Store] ❌ Erreur synchronisation catégorie (delete):', result.error);
+          // Revenir en arrière en cas d'erreur
+          if (deletedCategory) {
+            set((state) => ({
+              categories: [...state.categories, deletedCategory!],
+              services: previousServices,
+            }));
+          }
         }
-        return service;
-      }),
-    }));
+      })
+      .catch((error) => {
+        console.error('[Store] ❌ Erreur lors de la suppression de la catégorie:', error);
+        // Revenir en arrière en cas d'erreur
+        if (deletedCategory) {
+          set((state) => ({
+            categories: [...state.categories, deletedCategory!],
+            services: previousServices,
+          }));
+        }
+      });
   },
   addSubscriptionTemplate: (payload) => {
     const now = new Date().toISOString();

@@ -23,22 +23,15 @@ def get_database_url():
     )
 
 def create_admin_user():
-    """Supprime tous les utilisateurs existants et crée uniquement l'utilisateur admin"""
+    """Crée l'utilisateur admin s'il n'existe pas (ne supprime PAS les autres utilisateurs)"""
     try:
         database_url = get_database_url()
         with psycopg.connect(database_url) as conn, conn.cursor() as cur:
-            # Supprimer TOUS les utilisateurs existants
-            cur.execute("DELETE FROM users;")
-            deleted_count = cur.rowcount
-            print(f"🗑️  {deleted_count} utilisateur(s) supprimé(s)")
+            # Vérifier si l'admin existe déjà
+            cur.execute("SELECT id FROM users WHERE data->>'username' = %s;", ('admin',))
+            existing = cur.fetchone()
             
-            # Vérifier qu'il n'y a plus d'utilisateurs
-            cur.execute("SELECT COUNT(*) FROM users;")
-            remaining = cur.fetchone()[0]
-            if remaining > 0:
-                print(f"⚠️  Attention: {remaining} utilisateur(s) restant(s) après suppression")
-            
-            # Créer l'utilisateur admin unique
+            # Créer l'utilisateur admin uniquement s'il n'existe pas
             admin_id = "admin-default-user"
             admin_data = {
                 "id": admin_id,
@@ -71,10 +64,6 @@ def create_admin_user():
                 "companyId": None,
             }
             
-            # Vérifier qu'il n'y a pas déjà un utilisateur avec ce username (sécurité)
-            cur.execute("SELECT id FROM users WHERE data->>'username' = %s;", ('admin',))
-            existing = cur.fetchone()
-            
             if existing:
                 # Mettre à jour l'utilisateur existant
                 cur.execute(
@@ -104,14 +93,11 @@ def create_admin_user():
             conn.commit()
             
             if result:
-                # Vérifier qu'il n'y a qu'un seul utilisateur
+                # Compter le nombre total d'utilisateurs (incluant l'admin et les autres)
                 cur.execute("SELECT COUNT(*) FROM users;")
                 total_users = cur.fetchone()[0]
                 
-                if total_users == 1:
-                    print(f"✅ Vérification: {total_users} utilisateur unique dans la base")
-                else:
-                    print(f"⚠️  Attention: {total_users} utilisateur(s) trouvé(s) au lieu de 1")
+                print(f"✅ Vérification: {total_users} utilisateur(s) dans la base (incluant l'admin)")
                 
                 print(f"   ID: {result[0]}")
                 print(f"   Username: admin")
