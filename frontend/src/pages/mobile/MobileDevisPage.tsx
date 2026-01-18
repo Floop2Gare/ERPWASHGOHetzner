@@ -288,9 +288,10 @@ const MobileDevisPage: React.FC = () => {
     }
 
     // Si __loadingDevis est true, on attend que le chargement se termine
-    // Ne pas marquer hasLoadedRef à true ici pour éviter les re-renders infinis
+    // Marquer hasLoadedRef pour éviter que le useEffect se déclenche en boucle
     if ((window as any).__loadingDevis) {
       console.log('⏳ [MobileDevisPage] Chargement en cours, attente...');
+      hasLoadedRef.current = true; // Important : marquer pour éviter les re-déclenchements
       return;
     }
 
