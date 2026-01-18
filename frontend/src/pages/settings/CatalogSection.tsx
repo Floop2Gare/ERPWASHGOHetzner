@@ -284,28 +284,54 @@ export const CatalogSection = () => {
           parentId: categoryForm.parentId,
         });
         } else {
-        // Création d'une grande catégorie
-          const newCategory = addCategory({
-          name: categoryForm.name.trim(),
-          description: categoryForm.description.trim() || undefined,
-            active: categoryForm.active,
-            parentId: categoryForm.parentId,
-          });
-
-        // Création des sous-catégories
-        subCategories.forEach((subCat) => {
-          if (subCat.name.trim()) {
-            addCategory({
-              name: subCat.name.trim(),
-              description: subCat.description.trim() || undefined,
-              active: subCat.active,
-              parentId: newCategory.id,
-              // Utiliser duration et priceHT de l'API Category pour les sous-catégories
-              ...(subCat.duration !== undefined && { duration: subCat.duration } as any),
-              ...(subCat.priceHT !== undefined && { priceHT: subCat.priceHT } as any),
+        // Création d'une grande catégorie avec sous-catégories
+        // On doit attendre que la grande catégorie soit créée avant de créer les sous-catégories
+        const createMainCategoryAndSubCategories = async () => {
+          try {
+            // Créer la grande catégorie via l'API directement
+            const mainCategoryResult = await CategoryService.create({
+              name: categoryForm.name.trim(),
+              description: categoryForm.description.trim() || undefined,
+              active: categoryForm.active,
+              parentId: categoryForm.parentId,
             });
+
+            if (mainCategoryResult.success && mainCategoryResult.data && mainCategoryResult.data.id) {
+              const mainCategoryId = mainCategoryResult.data.id;
+
+              // Maintenant créer les sous-catégories avec le parentId de la grande catégorie créée
+              const subCategoryPromises = subCategories
+                .filter((subCat) => subCat.name.trim())
+                .map((subCat) =>
+                  CategoryService.create({
+                    name: subCat.name.trim(),
+                    description: subCat.description.trim() || undefined,
+                    active: subCat.active,
+                    parentId: mainCategoryId,
+                    // Utiliser duration et priceHT de l'API Category pour les sous-catégories
+                    ...(subCat.duration !== undefined && { duration: subCat.duration } as any),
+                    ...(subCat.priceHT !== undefined && { priceHT: subCat.priceHT } as any),
+                  })
+                );
+
+              // Attendre que toutes les sous-catégories soient créées
+              await Promise.all(subCategoryPromises);
+
+              // Recharger toutes les catégories depuis le backend pour avoir la vue complète
+              const refreshed = await CategoryService.getAll();
+              if (refreshed.success && Array.isArray(refreshed.data)) {
+                (useAppData as any).setState({ categories: refreshed.data });
+              }
+            } else {
+              console.error('[CatalogSection] ❌ Erreur lors de la création de la grande catégorie:', mainCategoryResult.error);
+            }
+          } catch (error) {
+            console.error('[CatalogSection] ❌ Erreur lors de la création de la catégorie et sous-catégories:', error);
           }
-        });
+        };
+
+        // Exécuter la création de manière asynchrone
+        createMainCategoryAndSubCategories();
       }
     }
 
