@@ -31,14 +31,28 @@
         // Version de l'application - mise à jour à chaque build
         const APP_VERSION = '{{APP_VERSION}}';
         const VERSION_KEY = 'erpwashgo-version';
+        const RELOAD_FLAG_KEY = 'erpwashgo-reload-flag';
+        
+        // Vérifier si un rechargement est déjà en cours (éviter les boucles)
+        const reloadFlag = sessionStorage.getItem(RELOAD_FLAG_KEY);
+        if (reloadFlag === 'true') {
+          // Un rechargement est en cours, ne rien faire
+          sessionStorage.removeItem(RELOAD_FLAG_KEY);
+          // Mettre à jour la version stockée
+          localStorage.setItem(VERSION_KEY, APP_VERSION);
+          return;
+        }
         
         // Vérifier si la version a changé
         const storedVersion = localStorage.getItem(VERSION_KEY);
-        const shouldClearCache = storedVersion !== APP_VERSION;
+        const shouldClearCache = storedVersion && storedVersion !== APP_VERSION;
         
-        // Si la version a changé, vider tous les caches
+        // Si la version a changé, vider tous les caches et recharger UNE SEULE FOIS
         if (shouldClearCache) {
           console.log('[Cache] Version changée, vidage du cache...', { storedVersion, newVersion: APP_VERSION });
+          
+          // Marquer qu'un rechargement est en cours
+          sessionStorage.setItem(RELOAD_FLAG_KEY, 'true');
           
           // Vider le localStorage (sauf le thème et l'authentification)
           const themeKeys = ['washandgo-theme', 'washingo-theme', 'washango-theme'];
@@ -54,8 +68,12 @@
           }
           keysToRemove.forEach(key => localStorage.removeItem(key));
           
-          // Vider le sessionStorage
+          // Vider le sessionStorage (sauf le flag de rechargement)
+          const reloadFlagValue = sessionStorage.getItem(RELOAD_FLAG_KEY);
           sessionStorage.clear();
+          if (reloadFlagValue) {
+            sessionStorage.setItem(RELOAD_FLAG_KEY, reloadFlagValue);
+          }
           
           // Vider le cache HTTP si disponible
           if ('caches' in window) {
@@ -66,20 +84,25 @@
             });
           }
           
-          // Mettre à jour la version stockée
+          // Mettre à jour la version stockée AVANT le rechargement
           localStorage.setItem(VERSION_KEY, APP_VERSION);
           
-          // Forcer un rechargement complet si c'est une PWA
-          if (window.matchMedia('(display-mode: standalone)').matches || 
-              (window.navigator as any).standalone || 
-              document.referrer.includes('android-app://')) {
-            console.log('[Cache] Application PWA détectée, rechargement forcé...');
-            window.location.reload();
+          // Forcer un rechargement complet UNE SEULE FOIS si c'est une PWA
+          const isPWA = window.matchMedia('(display-mode: standalone)').matches || 
+                        (window.navigator.standalone === true) || 
+                        document.referrer.includes('android-app://');
+          
+          if (isPWA) {
+            console.log('[Cache] Application PWA détectée, rechargement forcé une seule fois...');
+            // Utiliser replace au lieu de reload pour éviter l'historique
+            window.location.replace(window.location.href);
             return;
           }
         } else {
           // Mettre à jour la version même si elle n'a pas changé (au cas où)
-          localStorage.setItem(VERSION_KEY, APP_VERSION);
+          if (!storedVersion) {
+            localStorage.setItem(VERSION_KEY, APP_VERSION);
+          }
         }
         
         // Initialisation du thème
@@ -96,6 +119,8 @@
         document.body.setAttribute('data-theme', theme);
       })();
     </script>
+  </head>
+  <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

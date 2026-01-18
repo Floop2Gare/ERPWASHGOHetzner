@@ -182,34 +182,6 @@ const App = () => {
     body.setAttribute('data-theme', theme);
   }, [theme]);
 
-  // Vider le cache et forcer le rechargement à chaque connexion sur mobile
-  useEffect(() => {
-    if (isMobile && isAuthenticated) {
-      // Vérifier si c'est une nouvelle connexion (pas juste un refresh)
-      const lastAuthCheck = sessionStorage.getItem('erpwashgo-last-auth-check');
-      const currentTime = Date.now().toString();
-      
-      if (!lastAuthCheck || lastAuthCheck !== currentTime) {
-        sessionStorage.setItem('erpwashgo-last-auth-check', currentTime);
-        
-        // Forcer le rechargement des ressources en vidant les caches
-        if ('caches' in window) {
-          caches.keys().then(names => {
-            names.forEach(name => {
-              caches.delete(name);
-            });
-          });
-        }
-        
-        // Recharger l'application si nécessaire (uniquement si la version a changé)
-        const storedVersion = localStorage.getItem('erpwashgo-version');
-        if (!storedVersion) {
-          // Si pas de version stockée, forcer un rechargement complet
-          window.location.reload();
-        }
-      }
-    }
-  }, [isMobile, isAuthenticated]);
 
   // Si on est en mode mobile, afficher l'interface mobile complète
   if (isMobile) {
