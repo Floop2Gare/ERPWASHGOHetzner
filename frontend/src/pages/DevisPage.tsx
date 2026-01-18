@@ -5396,7 +5396,7 @@ const DevisPage = () => {
               </div>
 
               {/* Aperçu en temps réel à droite */}
-              <div className="w-80 flex-shrink-0 bg-gradient-to-b from-slate-50 to-white dark:from-slate-800 dark:to-slate-900 p-6 border-l border-slate-200 dark:border-slate-700">
+              <div className="w-80 flex-shrink-0 bg-white dark:bg-slate-900 p-6 border-l border-slate-200 dark:border-slate-700">
                 <div className="sticky top-6 space-y-4">
                   <div>
                     <h4 className="text-sm font-bold uppercase tracking-wider text-slate-900 dark:text-slate-100 mb-1">
@@ -5444,7 +5444,7 @@ const DevisPage = () => {
 
                   {/* Prix de la prestation seule */}
                   {modalSelectedServiceId && selectedService && servicePrice > 0 && (
-                    <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3">
+                    <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/50 p-3">
                       <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-2">Prestation</p>
                       <div className="space-y-1.5">
                         <div className="flex items-center justify-between">
@@ -5467,7 +5467,7 @@ const DevisPage = () => {
                     if (!subCategory?.priceHT && !(subCategory as any)?.defaultDurationMin) return null;
                     
                     return (
-                      <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3">
+                      <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/50 p-3">
                         <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-2">Sous-famille</p>
                         <div className="space-y-1.5">
                           {subCategory?.priceHT && (
@@ -5488,17 +5488,17 @@ const DevisPage = () => {
                   })()}
 
                   {/* Résumé total - Mise en avant */}
-                  <div className="rounded-xl border-2 border-blue-400 dark:border-blue-600 bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/30 dark:to-blue-800/40 p-5 shadow-md">
+                  <div className="rounded-xl border-2 border-blue-400 dark:border-blue-600 bg-white dark:bg-slate-800 p-5 shadow-md">
                     <p className="text-[10px] font-bold uppercase tracking-wider text-blue-700 dark:text-blue-300 mb-3">Résumé</p>
                     <div className="space-y-3">
                       <div className="flex items-center justify-between pb-2 border-b border-blue-200 dark:border-blue-700">
-                        <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">Prix HT</span>
+                        <span className="text-sm font-semibold text-slate-900 dark:text-slate-300">Prix HT</span>
                         <span className="text-xl font-bold text-blue-700 dark:text-blue-300">
                           {formatCurrency(totalPrice)}
                         </span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">Durée totale</span>
+                        <span className="text-sm font-semibold text-slate-900 dark:text-slate-300">Durée totale</span>
                         <span className="text-xl font-bold text-blue-700 dark:text-blue-300">
                           {formatDuration(totalDuration)}
                         </span>

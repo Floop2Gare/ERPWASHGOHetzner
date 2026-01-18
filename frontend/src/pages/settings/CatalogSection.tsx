@@ -234,11 +234,12 @@ export const CatalogSection = () => {
           description: categoryForm.description.trim() || undefined,
           active: categoryForm.active,
           parentId: categoryForm.parentId,
-          ...(categoryForm.duration !== undefined && { duration: categoryForm.duration } as any),
+          ...(categoryForm.duration !== undefined && { defaultDurationMin: categoryForm.duration } as any),
           ...(categoryForm.priceHT !== undefined && { priceHT: categoryForm.priceHT } as any),
         });
       } else {
         // C'est une grande catégorie
+        // Mettre à jour la catégorie principale d'abord
         updateCategory(editingCategory.id, {
           name: categoryForm.name.trim(),
           description: categoryForm.description.trim() || undefined,
@@ -246,32 +247,61 @@ export const CatalogSection = () => {
             parentId: categoryForm.parentId,
           });
 
-        // Mise à jour des sous-catégories
-        subCategories.forEach((subCat) => {
-          if (subCat.id) {
-            // Mise à jour existante
-            updateCategory(subCat.id, {
-              name: subCat.name.trim(),
-              description: subCat.description.trim() || undefined,
-              active: subCat.active,
-              parentId: editingCategory.id,
-              // Utiliser duration et priceHT de l'API Category pour les sous-catégories
-              ...(subCat.duration !== undefined && { duration: subCat.duration } as any),
-              ...(subCat.priceHT !== undefined && { priceHT: subCat.priceHT } as any),
-            });
-          } else if (subCat.name.trim()) {
-            // Nouvelle sous-catégorie
-            addCategory({
-              name: subCat.name.trim(),
-              description: subCat.description.trim() || undefined,
-              active: subCat.active,
-              parentId: editingCategory.id,
-              // Utiliser duration et priceHT de l'API Category pour les sous-catégories
-              ...(subCat.duration !== undefined && { duration: subCat.duration } as any),
-              ...(subCat.priceHT !== undefined && { priceHT: subCat.priceHT } as any),
-            });
+        // Mise à jour des sous-catégories de manière séquentielle pour éviter la surcharge du backend
+        const updateSubCategoriesSequentially = async () => {
+          const BATCH_SIZE = 5; // Traiter par lots de 5 pour éviter la surcharge
+          
+          try {
+            for (let i = 0; i < subCategories.length; i += BATCH_SIZE) {
+              const batch = subCategories.slice(i, i + BATCH_SIZE);
+              
+              // Traiter chaque lot en parallèle mais attendre avant le lot suivant
+              await Promise.all(batch.map(async (subCat) => {
+                if (subCat.id) {
+                  // Mise à jour existante via l'API directement
+                  const existingCategory = categories.find(c => c.id === subCat.id);
+                  if (existingCategory) {
+                    await CategoryService.update(subCat.id, {
+                      ...existingCategory,
+                      name: subCat.name.trim(),
+                      description: subCat.description.trim() || undefined,
+                      active: subCat.active,
+                      parentId: editingCategory.id,
+                      ...(subCat.duration !== undefined && { defaultDurationMin: subCat.duration } as any),
+                      ...(subCat.priceHT !== undefined && { priceHT: subCat.priceHT } as any),
+                    });
+                  }
+                } else if (subCat.name.trim()) {
+                  // Nouvelle sous-catégorie via l'API directement
+                  await CategoryService.create({
+                    name: subCat.name.trim(),
+                    description: subCat.description.trim() || undefined,
+                    active: subCat.active,
+                    parentId: editingCategory.id,
+                    ...(subCat.duration !== undefined && { defaultDurationMin: subCat.duration } as any),
+                    ...(subCat.priceHT !== undefined && { priceHT: subCat.priceHT } as any),
+                  });
+                }
+              }));
+              
+              // Petite pause entre les lots pour éviter la surcharge du backend (rate limiting)
+              if (i + BATCH_SIZE < subCategories.length) {
+                await new Promise(resolve => setTimeout(resolve, 300));
+              }
+            }
+            
+            // Recharger toutes les catégories depuis le backend après toutes les mises à jour
+            const refreshed = await CategoryService.getAll();
+            if (refreshed.success && Array.isArray(refreshed.data)) {
+              (useAppData as any).setState({ categories: refreshed.data });
+            }
+          } catch (error) {
+            console.error('[CatalogSection] ❌ Erreur lors de la mise à jour séquentielle des sous-catégories:', error);
           }
-        });
+        };
+
+        // Exécuter la mise à jour séquentielle de manière asynchrone
+        updateSubCategoriesSequentially();
       }
       } else {
       // Création
@@ -300,22 +330,31 @@ export const CatalogSection = () => {
               const mainCategoryId = mainCategoryResult.data.id;
 
               // Maintenant créer les sous-catégories avec le parentId de la grande catégorie créée
-              const subCategoryPromises = subCategories
-                .filter((subCat) => subCat.name.trim())
-                .map((subCat) =>
+              // Traiter par lots pour éviter la surcharge du backend
+              const BATCH_SIZE = 5;
+              const filteredSubCategories = subCategories.filter((subCat) => subCat.name.trim());
+              
+              for (let i = 0; i < filteredSubCategories.length; i += BATCH_SIZE) {
+                const batch = filteredSubCategories.slice(i, i + BATCH_SIZE);
+                
+                // Traiter chaque lot en parallèle mais attendre avant le lot suivant
+                await Promise.all(batch.map((subCat) =>
                   CategoryService.create({
                     name: subCat.name.trim(),
                     description: subCat.description.trim() || undefined,
                     active: subCat.active,
                     parentId: mainCategoryId,
-                    // Utiliser duration et priceHT de l'API Category pour les sous-catégories
-                    ...(subCat.duration !== undefined && { duration: subCat.duration } as any),
+                    // Utiliser defaultDurationMin et priceHT de l'API Category pour les sous-catégories
+                    ...(subCat.duration !== undefined && { defaultDurationMin: subCat.duration } as any),
                     ...(subCat.priceHT !== undefined && { priceHT: subCat.priceHT } as any),
                   })
-                );
-
-              // Attendre que toutes les sous-catégories soient créées
-              await Promise.all(subCategoryPromises);
+                ));
+                
+                // Petite pause entre les lots pour éviter la surcharge du backend (rate limiting)
+                if (i + BATCH_SIZE < filteredSubCategories.length) {
+                  await new Promise(resolve => setTimeout(resolve, 300));
+                }
+              }
 
               // Recharger toutes les catégories depuis le backend pour avoir la vue complète
               const refreshed = await CategoryService.getAll();
