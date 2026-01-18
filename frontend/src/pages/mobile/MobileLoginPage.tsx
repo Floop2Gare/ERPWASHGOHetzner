@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Visibility, VisibilityOff, Lock, Person, CheckCircle, ErrorOutline } from '@mui/icons-material';
 import { useAppData } from '../../store/useAppData';
 import { AuthService } from '../../api';
+import { UserBackpackService } from '../../api/services/userBackpack';
 import { BRAND_FULL_TITLE } from '../../lib/branding';
 import '../mobile.css';
 import '../../styles/apple-mobile.css';
@@ -64,8 +65,31 @@ const MobileLoginPage: React.FC = () => {
           console.log('[MobileLogin] Connexion locale ignorée, utilisation du backend uniquement');
         }
         
-        // Attendre un peu pour que le store soit mis à jour
-        await new Promise(resolve => setTimeout(resolve, 200));
+        // Forcer le rechargement du backpack utilisateur pour charger toutes les données
+        console.log('[MobileLogin] Chargement du backpack utilisateur...');
+        
+        // Réinitialiser les flags pour forcer le rechargement
+        (window as any).__userBackpackLoaded = false;
+        (window as any).__loadingUserBackpack = false;
+        
+        // Charger le backpack et attendre qu'il soit complètement chargé
+        try {
+          const hydrateBackpack = useAppData.getState().hydrateFromBackpack;
+          const backpackResult = await UserBackpackService.loadBackpack();
+          
+          if (backpackResult.success && backpackResult.data) {
+            console.log('[MobileLogin] Backpack chargé avec succès:', backpackResult.data);
+            // Hydrater le store avec toutes les données (utilisateur, entreprise, etc.)
+            hydrateBackpack(backpackResult.data);
+            
+            // Attendre un peu pour que le store soit complètement mis à jour
+            await new Promise(resolve => setTimeout(resolve, 300));
+          } else {
+            console.warn('[MobileLogin] Erreur lors du chargement du backpack:', backpackResult.error);
+          }
+        } catch (error) {
+          console.error('[MobileLogin] Erreur lors du chargement du backpack:', error);
+        }
         
         // Naviguer vers prestations sans recharger la page (pour rester en mode PWA standalone)
         navigate('/mobile/prestations', { replace: true });
