@@ -187,6 +187,13 @@ const App = () => {
   // Si on est en mode mobile, afficher l'interface mobile complète
   if (isMobile) {
     const MobileRootRedirect = () => {
+      // Vérifier le flag de non-rechargement
+      const noReload = sessionStorage.getItem('erpwashgo-no-reload');
+      if (noReload === 'true') {
+        // Ne pas rediriger si on vient de se connecter (évite les boucles)
+        sessionStorage.removeItem('erpwashgo-no-reload');
+      }
+      
       const mobileIsAuth = AuthService.isAuthenticated();
       return <Navigate to={mobileIsAuth ? "/mobile/prestations" : "/mobile/login"} replace />;
     };

@@ -20,17 +20,8 @@ const MobileLoginPage: React.FC = () => {
   const login = useAppData((state) => state.login);
   const navigate = useNavigate();
 
-  React.useEffect(() => {
-    // Vérifier l'authentification une seule fois au montage
-    const isAuth = AuthService.isAuthenticated();
-    if (isAuth && !window.location.pathname.includes('/mobile/prestations')) {
-      // Utiliser un petit délai pour éviter les conflits avec le chargement du backpack
-      const timeout = setTimeout(() => {
-        navigate('/mobile/prestations', { replace: true });
-      }, 100);
-      return () => clearTimeout(timeout);
-    }
-  }, []); // Ne dépendre de rien pour éviter les re-exécutions
+  // SUPPRIMÉ : useEffect qui causait des redirections en boucle
+  // La navigation se fait maintenant uniquement après connexion réussie dans handleSubmit
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -70,6 +61,9 @@ const MobileLoginPage: React.FC = () => {
           console.log('[MobileLogin] Connexion locale ignorée, utilisation du backend uniquement');
         }
         
+        // Marquer qu'on ne doit PAS recharger la page (protection contre les boucles)
+        sessionStorage.setItem('erpwashgo-no-reload', 'true');
+        
         // Forcer le rechargement du backpack utilisateur pour charger toutes les données
         console.log('[MobileLogin] Chargement du backpack utilisateur...');
         
@@ -88,7 +82,7 @@ const MobileLoginPage: React.FC = () => {
             hydrateBackpack(backpackResult.data);
             
             // Attendre un peu pour que le store soit complètement mis à jour
-            await new Promise(resolve => setTimeout(resolve, 300));
+            await new Promise(resolve => setTimeout(resolve, 500));
           } else {
             console.warn('[MobileLogin] Erreur lors du chargement du backpack:', backpackResult.error);
           }
@@ -96,7 +90,8 @@ const MobileLoginPage: React.FC = () => {
           console.error('[MobileLogin] Erreur lors du chargement du backpack:', error);
         }
         
-        // Naviguer vers prestations sans recharger la page (pour rester en mode PWA standalone)
+        // Naviguer vers prestations SANS recharger la page (pour rester en mode PWA standalone)
+        // Utiliser replace pour éviter d'ajouter à l'historique
         navigate('/mobile/prestations', { replace: true });
         return;
       }

@@ -25,91 +25,67 @@
     
     <title>Wash&amp;Go App</title>
     
-    <!-- Script pour vider le cache et forcer le rechargement -->
+    <!-- Script pour vider le cache - DÉSACTIVATION COMPLÈTE DU RECHARGEMENT POUR PWA -->
     <script>
       (function () {
         // Version de l'application - mise à jour à chaque build
         const APP_VERSION = '{{APP_VERSION}}';
         const VERSION_KEY = 'erpwashgo-version';
-        const RELOAD_FLAG_KEY = 'erpwashgo-reload-flag';
-        const RELOAD_TIMESTAMP_KEY = 'erpwashgo-reload-timestamp';
+        const NO_RELOAD_FLAG = 'erpwashgo-no-reload';
         
-        // Vérifier si un rechargement vient de se produire (éviter les boucles)
-        const reloadFlag = sessionStorage.getItem(RELOAD_FLAG_KEY);
-        const reloadTimestamp = sessionStorage.getItem(RELOAD_TIMESTAMP_KEY);
-        const now = Date.now();
+        // Détecter si c'est une PWA
+        const isPWA = window.matchMedia('(display-mode: standalone)').matches || 
+                      (window.navigator.standalone === true) || 
+                      document.referrer.includes('android-app://');
         
-        // Si un rechargement vient de se produire (moins de 2 secondes), ne rien faire
-        if (reloadFlag === 'true' && reloadTimestamp) {
-          const timeSinceReload = now - parseInt(reloadTimestamp, 10);
-          if (timeSinceReload < 2000) {
-            // Rechargement récent, nettoyer le flag et continuer normalement
-            sessionStorage.removeItem(RELOAD_FLAG_KEY);
-            sessionStorage.removeItem(RELOAD_TIMESTAMP_KEY);
-            // Mettre à jour la version stockée
-            if (APP_VERSION && APP_VERSION !== '{{APP_VERSION}}') {
+        // Pour les PWA : DÉSACTIVER COMPLÈTEMENT LE RECHARGEMENT AUTOMATIQUE
+        if (isPWA) {
+          console.log('[Cache] Application PWA détectée - Rechargement automatique DÉSACTIVÉ');
+          
+          // Mettre un flag pour empêcher tous les rechargements
+          sessionStorage.setItem(NO_RELOAD_FLAG, 'true');
+          
+          // Mettre à jour la version sans recharger
+          if (APP_VERSION && APP_VERSION !== '{{APP_VERSION}}') {
+            const storedVersion = localStorage.getItem(VERSION_KEY);
+            if (storedVersion !== APP_VERSION) {
+              console.log('[Cache] Version changée mais rechargement désactivé pour PWA', { storedVersion, newVersion: APP_VERSION });
+              
+              // Vider le localStorage (sauf le thème et l'authentification)
+              const themeKeys = ['washandgo-theme', 'washingo-theme', 'washango-theme'];
+              const authKeys = ['erp_washgo_access_token', 'erpwashgo-auth', 'erpwashgo-users', 'erpwashgo-current-user', 'erp_active_company_id'];
+              const keysToKeep = [...themeKeys, ...authKeys, VERSION_KEY];
+              
+              const keysToRemove = [];
+              for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key && !keysToKeep.includes(key)) {
+                  keysToRemove.push(key);
+                }
+              }
+              keysToRemove.forEach(key => localStorage.removeItem(key));
+              
+              // Vider le cache HTTP si disponible (asynchrone, ne pas bloquer)
+              if ('caches' in window) {
+                caches.keys().then(names => {
+                  names.forEach(name => {
+                    caches.delete(name).catch(() => {});
+                  });
+                }).catch(() => {});
+              }
+              
+              // Mettre à jour la version
               localStorage.setItem(VERSION_KEY, APP_VERSION);
             }
-            // Continuer avec l'initialisation normale
-          } else {
-            // Ancien flag, le nettoyer
-            sessionStorage.removeItem(RELOAD_FLAG_KEY);
-            sessionStorage.removeItem(RELOAD_TIMESTAMP_KEY);
-          }
-        }
-        
-        // Vérifier si la version a changé (seulement si APP_VERSION est valide)
-        const storedVersion = localStorage.getItem(VERSION_KEY);
-        const isValidVersion = APP_VERSION && APP_VERSION !== '{{APP_VERSION}}';
-        const shouldClearCache = isValidVersion && storedVersion && storedVersion !== APP_VERSION;
-        
-        // Si la version a changé, vider tous les caches et recharger UNE SEULE FOIS
-        if (shouldClearCache) {
-          console.log('[Cache] Version changée, vidage du cache...', { storedVersion, newVersion: APP_VERSION });
-          
-          // Marquer qu'un rechargement est en cours avec timestamp
-          sessionStorage.setItem(RELOAD_FLAG_KEY, 'true');
-          sessionStorage.setItem(RELOAD_TIMESTAMP_KEY, now.toString());
-          
-          // Vider le localStorage (sauf le thème et l'authentification)
-          const themeKeys = ['washandgo-theme', 'washingo-theme', 'washango-theme'];
-          const authKeys = ['erp_washgo_access_token', 'erpwashgo-auth', 'erpwashgo-users', 'erpwashgo-current-user', 'erp_active_company_id'];
-          const keysToKeep = [...themeKeys, ...authKeys, VERSION_KEY];
-          
-          const keysToRemove = [];
-          for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i);
-            if (key && !keysToKeep.includes(key)) {
-              keysToRemove.push(key);
-            }
-          }
-          keysToRemove.forEach(key => localStorage.removeItem(key));
-          
-          // Vider le cache HTTP si disponible (asynchrone, ne pas bloquer)
-          if ('caches' in window) {
-            caches.keys().then(names => {
-              names.forEach(name => {
-                caches.delete(name).catch(() => {});
-              });
-            }).catch(() => {});
-          }
-          
-          // Mettre à jour la version stockée AVANT le rechargement
-          localStorage.setItem(VERSION_KEY, APP_VERSION);
-          
-          // Forcer un rechargement complet UNE SEULE FOIS si c'est une PWA
-          const isPWA = window.matchMedia('(display-mode: standalone)').matches || 
-                        (window.navigator.standalone === true) || 
-                        document.referrer.includes('android-app://');
-          
-          if (isPWA) {
-            console.log('[Cache] Application PWA détectée, rechargement forcé une seule fois...');
-            // Utiliser replace au lieu de reload pour éviter l'historique
-            window.location.replace(window.location.href);
-            return;
+          } else if (!localStorage.getItem(VERSION_KEY)) {
+            // Première visite, enregistrer la version
+            localStorage.setItem(VERSION_KEY, APP_VERSION || Date.now().toString());
           }
         } else {
-          // Mettre à jour la version même si elle n'a pas changé (au cas où)
+          // Pour les navigateurs normaux : comportement standard (mais toujours pas de rechargement automatique)
+          const storedVersion = localStorage.getItem(VERSION_KEY);
+          const isValidVersion = APP_VERSION && APP_VERSION !== '{{APP_VERSION}}';
+          
           if (isValidVersion && !storedVersion) {
             localStorage.setItem(VERSION_KEY, APP_VERSION);
           }
