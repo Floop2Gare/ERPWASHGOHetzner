@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, lazy, Suspense, memo } from 'react';
+import { useEffect, useMemo, useState, useRef, lazy, Suspense, memo } from 'react';
 import { Navigate, Outlet, Route, Routes } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useUserBackpack } from './hooks/useUserBackpack';
@@ -7,6 +7,7 @@ import ClientsPage from './pages/ClientsPage';
 import LeadPage from './pages/LeadPage';
 import ServicePage from './pages/ServicePage';
 import DevisPage from './pages/DevisPage';
+import SiteWebPage from './pages/SiteWebPage';
 import PurchasesPage from './pages/PurchasesPage';
 import PlanningPage from './pages/PlanningPage';
 import StatsPage from './pages/StatsPage';
@@ -192,19 +193,29 @@ const App = () => {
 
     const MobileProtectedRoute = ({ children }: { children: JSX.Element }) => {
       const [isAuth, setIsAuth] = useState(() => AuthService.isAuthenticated());
+      const hasCheckedRef = useRef(false);
       
       useEffect(() => {
-        // Vérifier l'authentification à chaque changement
+        // Vérifier l'authentification seulement une fois au montage et après un délai
+        if (hasCheckedRef.current) {
+          return;
+        }
+        
         const checkAuth = () => {
           const auth = AuthService.isAuthenticated();
           setIsAuth(auth);
-          // Ne pas utiliser window.location.href pour éviter de sortir du mode PWA standalone
+          hasCheckedRef.current = true;
         };
         
+        // Vérifier immédiatement
         checkAuth();
-        // Vérifier périodiquement (toutes les secondes)
-        const interval = setInterval(checkAuth, 1000);
-        return () => clearInterval(interval);
+        
+        // Vérifier une seconde fois après un délai pour capturer les changements de token
+        const timeout = setTimeout(() => {
+          checkAuth();
+        }, 500);
+        
+        return () => clearTimeout(timeout);
       }, []);
       
       if (!isAuth) {
@@ -328,6 +339,14 @@ const App = () => {
           element={
             <RequirePage page="planning">
               <PlanningPage />
+            </RequirePage>
+          }
+        />
+        <Route
+          path="site-web"
+          element={
+            <RequirePage page="siteweb">
+              <SiteWebPage />
             </RequirePage>
           }
         />

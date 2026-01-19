@@ -32,31 +32,48 @@
         const APP_VERSION = '{{APP_VERSION}}';
         const VERSION_KEY = 'erpwashgo-version';
         const RELOAD_FLAG_KEY = 'erpwashgo-reload-flag';
+        const RELOAD_TIMESTAMP_KEY = 'erpwashgo-reload-timestamp';
         
-        // Vérifier si un rechargement est déjà en cours (éviter les boucles)
+        // Vérifier si un rechargement vient de se produire (éviter les boucles)
         const reloadFlag = sessionStorage.getItem(RELOAD_FLAG_KEY);
-        if (reloadFlag === 'true') {
-          // Un rechargement est en cours, ne rien faire
-          sessionStorage.removeItem(RELOAD_FLAG_KEY);
-          // Mettre à jour la version stockée
-          localStorage.setItem(VERSION_KEY, APP_VERSION);
-          return;
+        const reloadTimestamp = sessionStorage.getItem(RELOAD_TIMESTAMP_KEY);
+        const now = Date.now();
+        
+        // Si un rechargement vient de se produire (moins de 2 secondes), ne rien faire
+        if (reloadFlag === 'true' && reloadTimestamp) {
+          const timeSinceReload = now - parseInt(reloadTimestamp, 10);
+          if (timeSinceReload < 2000) {
+            // Rechargement récent, nettoyer le flag et continuer normalement
+            sessionStorage.removeItem(RELOAD_FLAG_KEY);
+            sessionStorage.removeItem(RELOAD_TIMESTAMP_KEY);
+            // Mettre à jour la version stockée
+            if (APP_VERSION && APP_VERSION !== '{{APP_VERSION}}') {
+              localStorage.setItem(VERSION_KEY, APP_VERSION);
+            }
+            // Continuer avec l'initialisation normale
+          } else {
+            // Ancien flag, le nettoyer
+            sessionStorage.removeItem(RELOAD_FLAG_KEY);
+            sessionStorage.removeItem(RELOAD_TIMESTAMP_KEY);
+          }
         }
         
-        // Vérifier si la version a changé
+        // Vérifier si la version a changé (seulement si APP_VERSION est valide)
         const storedVersion = localStorage.getItem(VERSION_KEY);
-        const shouldClearCache = storedVersion && storedVersion !== APP_VERSION;
+        const isValidVersion = APP_VERSION && APP_VERSION !== '{{APP_VERSION}}';
+        const shouldClearCache = isValidVersion && storedVersion && storedVersion !== APP_VERSION;
         
         // Si la version a changé, vider tous les caches et recharger UNE SEULE FOIS
         if (shouldClearCache) {
           console.log('[Cache] Version changée, vidage du cache...', { storedVersion, newVersion: APP_VERSION });
           
-          // Marquer qu'un rechargement est en cours
+          // Marquer qu'un rechargement est en cours avec timestamp
           sessionStorage.setItem(RELOAD_FLAG_KEY, 'true');
+          sessionStorage.setItem(RELOAD_TIMESTAMP_KEY, now.toString());
           
           // Vider le localStorage (sauf le thème et l'authentification)
           const themeKeys = ['washandgo-theme', 'washingo-theme', 'washango-theme'];
-          const authKeys = ['erpwashgo-auth', 'erpwashgo-users', 'erpwashgo-current-user'];
+          const authKeys = ['erp_washgo_access_token', 'erpwashgo-auth', 'erpwashgo-users', 'erpwashgo-current-user', 'erp_active_company_id'];
           const keysToKeep = [...themeKeys, ...authKeys, VERSION_KEY];
           
           const keysToRemove = [];
@@ -68,20 +85,13 @@
           }
           keysToRemove.forEach(key => localStorage.removeItem(key));
           
-          // Vider le sessionStorage (sauf le flag de rechargement)
-          const reloadFlagValue = sessionStorage.getItem(RELOAD_FLAG_KEY);
-          sessionStorage.clear();
-          if (reloadFlagValue) {
-            sessionStorage.setItem(RELOAD_FLAG_KEY, reloadFlagValue);
-          }
-          
-          // Vider le cache HTTP si disponible
+          // Vider le cache HTTP si disponible (asynchrone, ne pas bloquer)
           if ('caches' in window) {
             caches.keys().then(names => {
               names.forEach(name => {
-                caches.delete(name);
+                caches.delete(name).catch(() => {});
               });
-            });
+            }).catch(() => {});
           }
           
           // Mettre à jour la version stockée AVANT le rechargement
@@ -100,7 +110,7 @@
           }
         } else {
           // Mettre à jour la version même si elle n'a pas changé (au cas où)
-          if (!storedVersion) {
+          if (isValidVersion && !storedVersion) {
             localStorage.setItem(VERSION_KEY, APP_VERSION);
           }
         }

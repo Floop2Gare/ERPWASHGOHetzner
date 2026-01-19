@@ -21,11 +21,16 @@ const MobileLoginPage: React.FC = () => {
   const navigate = useNavigate();
 
   React.useEffect(() => {
+    // Vérifier l'authentification une seule fois au montage
     const isAuth = AuthService.isAuthenticated();
     if (isAuth && !window.location.pathname.includes('/mobile/prestations')) {
-      navigate('/mobile/prestations', { replace: true });
+      // Utiliser un petit délai pour éviter les conflits avec le chargement du backpack
+      const timeout = setTimeout(() => {
+        navigate('/mobile/prestations', { replace: true });
+      }, 100);
+      return () => clearTimeout(timeout);
     }
-  }, [navigate]);
+  }, []); // Ne dépendre de rien pour éviter les re-exécutions
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
