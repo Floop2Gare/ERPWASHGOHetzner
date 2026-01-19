@@ -187,11 +187,19 @@ const App = () => {
   // Si on est en mode mobile, afficher l'interface mobile complète
   if (isMobile) {
     const MobileRootRedirect = () => {
-      // Vérifier le flag de non-rechargement
+      // Protection contre les redirections en boucle après connexion
       const noReload = sessionStorage.getItem('erpwashgo-no-reload');
-      if (noReload === 'true') {
-        // Ne pas rediriger si on vient de se connecter (évite les boucles)
-        sessionStorage.removeItem('erpwashgo-no-reload');
+      const justLoggedIn = sessionStorage.getItem('erpwashgo-just-logged-in');
+      
+      // Si on vient juste de se connecter, ne PAS rediriger automatiquement
+      // La navigation se fait déjà dans MobileLoginPage après connexion
+      if (justLoggedIn === 'true') {
+        // Nettoyer le flag après un court délai
+        setTimeout(() => {
+          sessionStorage.removeItem('erpwashgo-just-logged-in');
+        }, 1000);
+        // Laisser la navigation se faire naturellement depuis MobileLoginPage
+        return null;
       }
       
       const mobileIsAuth = AuthService.isAuthenticated();
@@ -203,7 +211,16 @@ const App = () => {
       const hasCheckedRef = useRef(false);
       
       useEffect(() => {
-        // Vérifier l'authentification seulement une fois au montage et après un délai
+        // Protection : ne pas vérifier si on vient juste de se connecter
+        const justLoggedIn = sessionStorage.getItem('erpwashgo-just-logged-in');
+        if (justLoggedIn === 'true') {
+          // On vient de se connecter, utiliser l'état actuel sans vérification supplémentaire
+          setIsAuth(true);
+          hasCheckedRef.current = true;
+          return;
+        }
+        
+        // Vérifier l'authentification seulement une fois au montage
         if (hasCheckedRef.current) {
           return;
         }
@@ -216,13 +233,6 @@ const App = () => {
         
         // Vérifier immédiatement
         checkAuth();
-        
-        // Vérifier une seconde fois après un délai pour capturer les changements de token
-        const timeout = setTimeout(() => {
-          checkAuth();
-        }, 500);
-        
-        return () => clearTimeout(timeout);
       }, []);
       
       if (!isAuth) {

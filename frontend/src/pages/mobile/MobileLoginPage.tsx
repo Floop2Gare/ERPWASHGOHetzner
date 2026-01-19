@@ -61,7 +61,8 @@ const MobileLoginPage: React.FC = () => {
           console.log('[MobileLogin] Connexion locale ignorée, utilisation du backend uniquement');
         }
         
-        // Marquer qu'on ne doit PAS recharger la page (protection contre les boucles)
+        // PROTECTION MAXIMALE : Marquer qu'on vient de se connecter pour empêcher TOUTES les redirections automatiques
+        sessionStorage.setItem('erpwashgo-just-logged-in', 'true');
         sessionStorage.setItem('erpwashgo-no-reload', 'true');
         
         // Forcer le rechargement du backpack utilisateur pour charger toutes les données
@@ -92,6 +93,8 @@ const MobileLoginPage: React.FC = () => {
         
         // Naviguer vers prestations SANS recharger la page (pour rester en mode PWA standalone)
         // Utiliser replace pour éviter d'ajouter à l'historique
+        // Attendre un peu pour s'assurer que tous les états sont bien mis à jour
+        await new Promise(resolve => setTimeout(resolve, 200));
         navigate('/mobile/prestations', { replace: true });
         return;
       }
